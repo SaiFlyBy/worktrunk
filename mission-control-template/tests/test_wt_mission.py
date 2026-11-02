@@ -46,6 +46,7 @@ class PublishTests(unittest.TestCase):
         self.advanced_base_in_head = False
         self.open_prs: list[dict] = []
         self.push_urls = ["https://github.com/owner/repo.git"]
+        self.push_env = None
 
     def run_command(self, argv, **kwargs):
         self.calls.append(argv)
@@ -55,6 +56,7 @@ class PublishTests(unittest.TestCase):
                 and not self.advanced_base_in_head):
             return subprocess.CompletedProcess(argv, 1, "", "")
         if "push" in argv:
+            self.push_env = kwargs.get("env")
             if self.push_fails:
                 return subprocess.CompletedProcess(argv, 1, "", "unknown push result")
             self.remote_branch = self.head
@@ -89,7 +91,11 @@ class PublishTests(unittest.TestCase):
         push = next(call for call in self.calls if "push" in call)
         self.assertIn(self.head + ":refs/heads/scope/one", push)
         self.assertIn("--force-with-lease=refs/heads/scope/one:", push)
-        self.assertIn("remote.origin.mirror=false", push)
+        self.assertTrue(any(part.startswith("remote.wt-mission-") and part.endswith(".mirror=false") for part in push))
+        self.assertTrue(any(part.startswith("--config-env=remote.wt-mission-") for part in push))
+        self.assertEqual(self.push_env["WT_MISSION_PUSH_URL"], self.push_urls[0])
+        self.assertNotIn(self.push_urls[0], push)
+        self.assertNotIn("origin", push)
         self.assertIn("--no-follow-tags", push)
         self.assertIn("--recurse-submodules=no", push)
         self.assertNotIn("--force", push)
@@ -120,6 +126,33 @@ class PublishTests(unittest.TestCase):
         with self.assertRaisesRegex(bridge.BridgeError, "push destination"):
             self.invoke()
         self.assertFalse(any("push" in call or ("pr" in call and "create" in call) for call in self.calls))
+
+    def test_git_config_inspection_failure_blocks_before_push(self):
+        original = self.run_command
+        def fail_inspection(argv, **kwargs):
+            if "--show-scope" in argv:
+                self.calls.append(argv)
+                return subprocess.CompletedProcess(argv, 1, "", "configuration unavailable")
+            return original(argv, **kwargs)
+        self.run_command = fail_inspection
+        with self.assertRaisesRegex(bridge.BridgeError, "Cannot inspect Git configuration"):
+            self.invoke()
+        self.assertFalse(any("push" in call or ("pr" in call and "create" in call) for call in self.calls))
+
+    def test_push_error_does_not_disclose_destination_credentials(self):
+        secret_url = "https://secret-token@github.com/owner/repo.git"
+        self.push_urls = [secret_url]
+        original = self.run_command
+        def fail_push(argv, **kwargs):
+            if "push" in argv:
+                self.calls.append(argv)
+                return subprocess.CompletedProcess(argv, 1, "", "cannot reach " + secret_url)
+            return original(argv, **kwargs)
+        self.run_command = fail_push
+        with self.assertRaises(bridge.BridgeError) as raised:
+            self.invoke()
+        self.assertNotIn("secret-token", str(raised.exception))
+        self.assertIn("reconcile", str(raised.exception))
 
     def test_changed_base_blocks_before_push(self):
         self.remote_base = "c" * 40
@@ -306,14 +339,15 @@ class RealGitPublishTests(unittest.TestCase):
                     forge_calls.append(argv)
                     output = "[]" if "list" in argv else "https://github.com/owner/repo/pull/1"
                     return subprocess.CompletedProcess(argv, 0, output, "")
-                kwargs["env"] = test_env
+                kwargs.setdefault("env", test_env)
                 return real_run(argv, **kwargs)
             with patch.object(bridge, "scope_report", return_value=report), \
                  patch.object(bridge, "ledger_entry", return_value={
                      "branch": "scope/one", "remote_url": "https://github.com/owner/repo.git",
                      "repository": "owner/repo", "base_sha": base}), \
                  patch.object(bridge, "run", side_effect=run_fixture), \
-                 patch.object(bridge, "validate_push_destinations", return_value=None), \
+                 patch.object(bridge, "validate_push_destinations", return_value=[str(bare)]), \
+                 patch.dict(os.environ, test_env, clear=True), \
                  contextlib.redirect_stdout(io.StringIO()) as output:
                 bridge.publish(args)
             published = json.loads(output.getvalue())
@@ -368,13 +402,14 @@ class RealGitPublishTests(unittest.TestCase):
                 if "push" in argv:
                     # Another actor creates an ancestor after the bridge's absence probe.
                     git_at("-C", str(repo), "push", "origin", f"{base}:refs/heads/scope/one")
-                kwargs["env"] = env
+                kwargs.setdefault("env", env)
                 return real_run(argv, **kwargs)
             with patch.object(bridge, "scope_report", return_value=report), \
                  patch.object(bridge, "ledger_entry", return_value={"branch": "scope/one",
                      "remote_url": "https://github.com/owner/repo.git", "repository": "owner/repo", "base_sha": base}), \
-                 patch.object(bridge, "validate_push_destinations", return_value=None), \
+                 patch.object(bridge, "validate_push_destinations", return_value=[str(bare)]), \
                  patch.object(bridge, "run", side_effect=run_fixture), \
+                 patch.dict(os.environ, env, clear=True), \
                  contextlib.redirect_stdout(io.StringIO()):
                 with self.assertRaisesRegex(bridge.BridgeError, "reconcile"):
                     bridge.publish(args)
@@ -383,6 +418,85 @@ class RealGitPublishTests(unittest.TestCase):
             push = next(call for call in calls if "push" in call)
             self.assertIn("--force-with-lease=refs/heads/scope/one:", push)
             self.assertNotIn("--force", push)
+
+
+    def test_destination_is_bound_across_pushurl_change_and_second_rewrite(self):
+        with tempfile.TemporaryDirectory(prefix="wt-mission-destination-race-") as tmp:
+            root = Path(tmp)
+            good, bad, repo = root / "good.git", root / "bad.git", root / "repo"
+            good_url, bad_url = good.as_posix(), bad.as_posix()
+            env = bridge.child_environment(os.environ)
+            for key in list(env):
+                if key in {"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"} or key.startswith("GIT_CONFIG_KEY_") or key.startswith("GIT_CONFIG_VALUE_"):
+                    env.pop(key, None)
+            env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+                        "GIT_CONFIG_SYSTEM": os.devnull, "GIT_TERMINAL_PROMPT": "0"})
+            def git_at(*argv, check=True, git_env=None):
+                return subprocess.run(["git", *argv], check=check, capture_output=True,
+                                      env=git_env or env, text=True, encoding="utf-8")
+            git_at("init", "--bare", str(good))
+            git_at("init", "--bare", str(bad))
+            git_at("init", "-b", "main", str(repo))
+            git_at("-C", str(repo), "config", "user.name", "Fixture")
+            git_at("-C", str(repo), "config", "user.email", "fixture@example.invalid")
+            (repo / "tracked.txt").write_text("base\n", encoding="utf-8")
+            git_at("-C", str(repo), "add", "tracked.txt")
+            git_at("-C", str(repo), "commit", "-m", "base")
+            base = git_at("-C", str(repo), "rev-parse", "HEAD").stdout.strip()
+            git_at("-C", str(repo), "push", good_url, "HEAD:refs/heads/main")
+            git_at("-C", str(repo), "switch", "-c", "scope/one")
+            (repo / "tracked.txt").write_text("candidate\n", encoding="utf-8")
+            git_at("-C", str(repo), "commit", "-am", "candidate")
+            head = git_at("-C", str(repo), "rev-parse", "HEAD").stdout.strip()
+            git_at("-C", str(repo), "remote", "add", "origin", "fixture:fetch")
+            git_at("-C", str(repo), "config", f"url.{good_url}.insteadOf", "fixture:fetch")
+            git_at("-C", str(repo), "config", "--add", f"url.{good_url}.insteadOf", "fixture:push")
+            git_at("-C", str(repo), "config", "remote.origin.pushurl", "fixture:push")
+            original_system = root / "system.gitconfig"
+            original_system.write_text(
+                f"[url {bridge.config_quote(bad_url)}]\n\tinsteadOf = {bridge.config_quote(good_url)}\n"
+                "[http]\n\tlowSpeedLimit = 12345\n", encoding="utf-8")
+            env.update({"GIT_CONFIG_NOSYSTEM": "0", "GIT_CONFIG_SYSTEM": str(original_system)})
+            # A naive push of the already-resolved URL is rewritten a second time.
+            probe = git_at("-C", str(repo), "push", "--dry-run", good_url,
+                           "HEAD:refs/heads/probe")
+            self.assertIn(bad_url, probe.stderr.replace("\\", "/"))
+            self.assertEqual(git_at("-C", str(repo), "remote", "get-url", "--push", "origin").stdout.strip(), good_url)
+            report = {"state": "ACCEPTED", "kind": "MUTATION",
+                "target": {"repository": "owner/repo", "base_sha": base},
+                "result": {"target_outcomes": [{"repository": "owner/repo", "baseline_sha": base, "head_sha": head}]},
+                "workspace": {"path": str(repo), "branch": "scope/one", "clean": True,
+                              "head_sha": head, "origin": good_url}}
+            args = bridge.argparse.Namespace(root=str(root), cell="M000", base="main",
+                                             title="Scope", body="Evidence", gh="gh-fixture")
+            real_run = bridge.run
+            seen = {"push": False, "system_setting": False}
+            def run_fixture(argv, **kwargs):
+                if argv[0] == "gh-fixture":
+                    return subprocess.CompletedProcess(argv, 0, "[]" if "list" in argv else "https://github.com/owner/repo/pull/1", "")
+                if "push" in argv:
+                    seen["push"] = True
+                    # Change the named origin after its final validation, before Git runs.
+                    git_at("-C", str(repo), "config", "remote.origin.pushurl", bad_url)
+                    self.assertNotIn("origin", argv)
+                    self.assertNotIn(good_url, argv)
+                    self.assertEqual(kwargs["env"]["WT_MISSION_PUSH_URL"], good_url)
+                    setting = git_at("-C", str(repo), "config", "--get", "http.lowSpeedLimit", git_env=kwargs["env"])
+                    seen["system_setting"] = setting.stdout.strip() == "12345"
+                kwargs.setdefault("env", env)
+                return real_run(argv, **kwargs)
+            with patch.dict(os.environ, env, clear=True), \
+                 patch.object(bridge, "scope_report", return_value=report), \
+                 patch.object(bridge, "ledger_entry", return_value={"branch": "scope/one", "remote_url": good_url,
+                     "repository": "owner/repo", "base_sha": base}), \
+                 patch.object(bridge, "github_origin", side_effect=lambda url, repository: url == good_url), \
+                 patch.object(bridge, "run", side_effect=run_fixture), \
+                 contextlib.redirect_stdout(io.StringIO()) as output:
+                bridge.publish(args)
+            self.assertEqual(json.loads(output.getvalue())["state"], "DRAFT_PR_CREATED")
+            self.assertEqual(seen, {"push": True, "system_setting": True})
+            self.assertEqual(git_at("--git-dir", str(good), "rev-parse", "refs/heads/scope/one").stdout.strip(), head)
+            self.assertNotEqual(git_at("--git-dir", str(bad), "rev-parse", "--verify", "refs/heads/scope/one", check=False).returncode, 0)
 
 
 class HandoffTests(unittest.TestCase):

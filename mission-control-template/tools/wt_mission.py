@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -402,7 +403,7 @@ def handoff(args: argparse.Namespace) -> None:
                      indent=2, ensure_ascii=False))
 
 
-def validate_push_destinations(repo: Path, repository: str) -> None:
+def validate_push_destinations(repo: Path, repository: str) -> list[str]:
     # Git may use one or more push URLs distinct from the fetch URL; get-url
     # expands pushInsteadOf/insteadOf using Git's effective configuration.
     proc = run(["git", "-C", str(repo), "remote", "get-url", "--push", "--all", "origin"])
@@ -413,6 +414,62 @@ def validate_push_destinations(repo: Path, repository: str) -> None:
                                for url in destinations):
         # Do not echo URLs: they may contain credentials.
         raise BridgeError("Every effective origin push destination must identify the compiled GitHub repository")
+    return destinations
+
+
+def config_quote(value: str) -> str:
+    # Git config supports these escapes in quoted subsection names and values.
+    if any(ch in value for ch in "\x00\r\n"):
+        raise BridgeError("Cannot bind a Git configuration value containing a line break")
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"').replace("\t", "\\t").replace("\b", "\\b") + '"'
+
+
+def system_config_origin(repo: Path, env: dict[str, str]) -> str | None:
+    # Retain the user's effective system configuration when inserting a
+    # process-only URL binding before all existing rewrite rules.
+    proc = run(["git", "-C", str(repo), "config", "--show-scope", "--show-origin",
+                "--null", "--list", "--includes"], env=env)
+    fields = proc.stdout.split("\x00")
+    if fields and fields[-1] == "":
+        fields.pop()
+    if proc.returncode or len(fields) % 3:
+        raise BridgeError("Cannot inspect Git configuration for the verified push")
+    for i in range(0, len(fields), 3):
+        if fields[i] == "system":
+            origin = fields[i + 1]
+            if not origin.startswith("file:") or not origin[5:]:
+                raise BridgeError("Cannot preserve Git system configuration for the verified push")
+            return origin[5:]
+    return None
+
+
+def push_to_verified_destination(repo: Path, destination: str, candidate: str,
+                                 branch_ref: str) -> subprocess.CompletedProcess[str]:
+    env = child_environment(os.environ)
+    system_origin = system_config_origin(repo, env)
+    # An exact-match self-rewrite comes first in Git's system scope. It prevents
+    # the already-resolved URL from being rewritten a second time while leaving
+    # the original system, global, and local configuration in effect.
+    quoted = config_quote(destination)
+    config = f"[url {quoted}]\n\tinsteadOf = {quoted}\n\tpushInsteadOf = {quoted}\n"
+    if system_origin:
+        config += f"[include]\n\tpath = {config_quote(system_origin)}\n"
+    with tempfile.TemporaryDirectory(prefix="wt-mission-push-config-") as tmp:
+        system_config = Path(tmp) / "config"
+        system_config.write_text(config, encoding="utf-8")
+        env["GIT_CONFIG_SYSTEM"] = str(system_config)
+        env["GIT_CONFIG_NOSYSTEM"] = "0"
+        env["WT_MISSION_PUSH_URL"] = destination
+        # This random per-process remote exists only in the command's config;
+        # neither a later origin.pushurl change nor remote-name resolution can
+        # replace its validated URL. Keeping the URL in the environment avoids
+        # exposing embedded credentials in the process command line.
+        remote = "wt-mission-" + secrets.token_hex(16)
+        return run(["git", "-C", str(repo),
+                    f"--config-env=remote.{remote}.url=WT_MISSION_PUSH_URL",
+                    "-c", f"remote.{remote}.mirror=false", "push",
+                    "--no-follow-tags", "--recurse-submodules=no",
+                    f"--force-with-lease={branch_ref}:", remote, f"{candidate}:{branch_ref}"], env=env)
 
 
 def publish(args: argparse.Namespace) -> None:
@@ -477,13 +534,11 @@ def publish(args: argparse.Namespace) -> None:
         # Re-read immediately before upload. The empty expected value is an
         # atomic create-only lease: Git refuses the update if the ref exists,
         # even when a concurrent creator chose an ancestor of the candidate.
-        validate_push_destinations(repo, repository)
-        push = run(["git", "-C", str(repo), "-c", "remote.origin.mirror=false", "push",
-                    "--no-follow-tags", "--recurse-submodules=no",
-                    f"--force-with-lease={branch_ref}:", "origin", f"{candidate}:{branch_ref}"])
+        destination = validate_push_destinations(repo, repository)[0]
+        push = push_to_verified_destination(repo, destination, candidate, branch_ref)
         if push.returncode:
-            raise BridgeError("Push did not confirm success; reconcile the remote branch before retrying. "
-                              + (push.stderr or push.stdout).strip())
+            # Git may include a credential-bearing URL in its diagnostics.
+            raise BridgeError(f"Push did not confirm success (exit {push.returncode}); reconcile the remote branch before retrying")
     if remote_head(repo, branch_ref) != candidate:
         raise BridgeError("Remote branch does not match the accepted head; reconcile before retrying")
     if remote_head(repo, base_ref) != observed_base:
