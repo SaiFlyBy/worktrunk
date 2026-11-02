@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -243,6 +244,117 @@ class RealGitPublishTests(unittest.TestCase):
             self.assertEqual(published["compiled_base_sha"], base)
             self.assertEqual(git_at("--git-dir", str(bare), "rev-parse", "refs/heads/scope/one"), head)
             self.assertTrue(any("create" in call and "--draft" in call for call in forge_calls))
+
+
+class HandoffTests(unittest.TestCase):
+    """A real Git graph with a simulated already-settled Mission Control record."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="wt-mission-handoff-test-")
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        self.mission, self.repo, self.source = root / "mission", root / "repo", root / "source"
+        self.mission.mkdir()
+        self.env = bridge.child_environment(os.environ)
+        for key in list(self.env):
+            if key in {"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"} or key.startswith("GIT_CONFIG_KEY_") or key.startswith("GIT_CONFIG_VALUE_"):
+                self.env.pop(key, None)
+        self.env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+                         "GIT_CONFIG_SYSTEM": os.devnull, "GIT_TERMINAL_PROMPT": "0"})
+        self.git("init", "-b", "main", str(self.repo))
+        self.git("-C", str(self.repo), "config", "user.name", "Fixture")
+        self.git("-C", str(self.repo), "config", "user.email", "fixture@example.invalid")
+        (self.repo / "base.txt").write_text("base\n", encoding="utf8")
+        self.git("-C", str(self.repo), "add", "base.txt")
+        self.git("-C", str(self.repo), "commit", "-m", "base")
+        self.base = self.git("-C", str(self.repo), "rev-parse", "HEAD")
+        self.git("-C", str(self.repo), "worktree", "add", "-b", "scope/one", str(self.source), self.base)
+        (self.source / "scope.txt").write_text("scope\n", encoding="utf8")
+        self.git("-C", str(self.source), "add", "scope.txt")
+        self.git("-C", str(self.source), "commit", "-m", "accepted scope")
+        self.head = self.git("-C", str(self.source), "rev-parse", "HEAD")
+        (self.repo / "main change.txt").write_text("advanced\n", encoding="utf8")
+        self.git("-C", str(self.repo), "add", "main change.txt")
+        self.git("-C", str(self.repo), "commit", "-m", "advance main")
+        self.advanced = self.git("-C", str(self.repo), "rev-parse", "HEAD")
+        self.target = {"repository": "owner/repo", "base_sha": self.base, "owned_paths": ["scope.txt"]}
+        self.cell = {"cell_id": "M000", "kind": "MUTATION", "dependencies": ["G000"],
+                     "objective": "One complete scope", "acceptance": ["scope works"], "status": "PENDING",
+                     "conflict_class": "write:scope", "resource_claims": ["scope-resource"],
+                     "requirement_ids": ["R001"], "target": self.target,
+                     "positive_verification": ["positive"], "negative_verification": ["negative"],
+                     "rollback": "revert scope", "result_schema": "contracts/schemas/RESULT_SCHEMA.json"}
+        self.record = {"state": "ACCEPTED", "attempt": 1}
+        for kind in ("result", "context_receipt", "adjudication"):
+            path = self.mission / (kind + ".json")
+            path.write_text(json.dumps({"kind": kind}) + "\n", encoding="utf8")
+            self.record[kind + "_ref"] = path.name
+            self.record[kind + "_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.workspace = {"path": str(self.source), "branch": "scope/one", "clean": True,
+                          "head_sha": self.head, "origin": "https://github.com/owner/repo.git"}
+        self.report = {"target": self.target, "result": {"target_outcomes": [{"repository": "owner/repo",
+                       "baseline_sha": self.base, "head_sha": self.head}]}, "workspace": self.workspace}
+        self.entry = {"branch": "scope/one", "remote_url": self.workspace["origin"],
+                      "repository": "owner/repo", "base_sha": self.base}
+        self.packet = {"kind": "MUTATION", "target": self.target}
+        self.args = bridge.argparse.Namespace(root=str(self.mission), cell="M000", successor="M002",
+                                              frontier="F200", base_sha=self.advanced)
+        self.compiled = []
+
+    def git(self, *argv):
+        return subprocess.run(["git", *argv], check=True, capture_output=True, env=self.env,
+                              text=True, encoding="utf8").stdout.strip()
+
+    def invoke(self):
+        def compile_frontier(root, *argv):
+            self.assertEqual(argv[0:2], ("compile", "--frontier"))
+            self.compiled.append(json.loads(Path(argv[2]).read_text(encoding="utf8")))
+            return ""
+        with patch.dict(os.environ, self.env, clear=True), \
+             patch.object(bridge, "cell_info", return_value=(self.cell, self.record, self.packet)), \
+             patch.object(bridge, "scope_report", return_value=self.report), \
+             patch.object(bridge, "ledger_entry", return_value=self.entry), \
+             patch.object(bridge, "mc", side_effect=compile_frontier), \
+             contextlib.redirect_stdout(io.StringIO()) as out:
+            bridge.handoff(self.args)
+            return json.loads(out.getvalue())
+
+    def test_successor_binds_original_evidence_and_base_changes(self):
+        result = self.invoke()
+        successor = self.compiled[0]["cells"][0]
+        self.assertEqual(result["state"], "SUCCESSOR_COMPILED")
+        self.assertEqual(result["source_head"], self.head)
+        self.assertEqual(result["observed_base"], self.advanced)
+        self.assertEqual(result["base_changed_paths"], ["main change.txt"])
+        self.assertEqual(successor["target"], self.target)
+        self.assertEqual(successor["resource_claims"], self.cell["resource_claims"])
+        self.assertEqual(successor["requirement_ids"], self.cell["requirement_ids"])
+        self.assertIn("M000", successor["dependencies"])
+        self.assertTrue(set(self.cell["acceptance"] + bridge.HANDOFF_ACCEPTANCE) <= set(successor["acceptance"]))
+        payload = json.loads(successor["objective"].split(bridge.HANDOFF_MARKER, 1)[1])
+        self.assertEqual(payload["accepted_evidence"]["result"]["sha256"], self.record["result_sha256"])
+        self.assertEqual(self.git("-C", str(self.source), "rev-parse", "HEAD"), self.head)
+        self.assertEqual(self.git("-C", str(self.repo), "rev-parse", "HEAD"), self.advanced)
+
+    def test_changed_source_or_tampered_evidence_is_rejected_before_compile(self):
+        self.workspace["head_sha"] = self.advanced
+        with self.assertRaisesRegex(bridge.BridgeError, "custody"):
+            self.invoke()
+        self.workspace["head_sha"] = self.head
+        (self.mission / "result.json").write_text("tampered\n", encoding="utf8")
+        with self.assertRaisesRegex(bridge.BridgeError, "evidence changed"):
+            self.invoke()
+        self.assertEqual(self.compiled, [])
+
+    def test_handoff_rejects_unaccepted_or_already_contained_base(self):
+        self.record["state"] = "DISPATCHED"
+        with self.assertRaisesRegex(bridge.BridgeError, "independently accepted"):
+            self.invoke()
+        self.record["state"] = "ACCEPTED"
+        self.args.base_sha = self.base
+        with self.assertRaisesRegex(bridge.BridgeError, "already contains"):
+            self.invoke()
+        self.assertEqual(self.compiled, [])
 
 
 if __name__ == "__main__":

@@ -62,10 +62,40 @@ Publication checks that the current remote base is an ancestor of the exact
 independently accepted candidate. If main advanced but was included before
 verification, the scope can proceed without a separate aggregate branch. If
 the current base is absent or cannot be checked locally, publication stops and
-the branch is preserved. Reassess the candidate and which evidence is still
-valid; a changed base does not automatically make prior checks valid or
-invalid. A failed or uncertain push or PR creation must be reconciled before
-retrying.
+the branch is preserved. A failed or uncertain push or PR creation must be
+reconciled before retrying.
+
+If main advances after a scope was accepted, first fetch the actual current
+base using the project's normal Git workflow. Pass its exact locally available
+commit to `handoff` while the mission is still in its mutation phase:
+
+```sh
+python path/to/mission/runtime/tools/wt_mission.py handoff \
+  --root path/to/mission --cell M000 --successor M002 \
+  --frontier F200 --base-sha ACTUAL_CURRENT_MAIN_COMMIT
+```
+
+The bridge checks the original accepted worktree, binds its result, context
+receipt and adjudication hashes, and asks Mission Control to compile a new
+successor cell with the same requirement, ownership and resource claims. It
+records the changed base paths as context, not as a verdict about which tests
+remain valid. The original accepted cell and worktree are left intact.
+
+Use `prepare` to register and dispatch the successor at the mission's exact
+compiled baseline. After dispatch, the worker can incorporate the accepted
+source commit and the observed main commit into that successor worktree using
+ordinary Git merges; resolve any conflicts there. Reassess prior evidence
+against the resulting candidate, the changed inputs, dependencies, test
+selection and toolchain. Reuse evidence only where those premises still hold;
+rerun or explicitly account for affected or uncertain checks. An independent
+verifier must adjudicate the successor before `publish` can open its draft PR.
+The live remote base is checked again at publication. No evidence is marked
+valid and no merge, rebase, force push or cleanup happens automatically.
+
+The current v16 lifecycle allows this successor before integration begins.
+After the mission has moved to integration or later, a new mission is needed;
+carry forward the original evidence references and reassess their applicability
+rather than treating previous checks as automatically valid.
 
 For final workspace accounting, prepare the reconciliation required by v16,
 then load it and optionally close:
@@ -76,23 +106,29 @@ python path/to/mission/runtime/tools/wt_mission.py reconcile \
 ```
 
 The bridge does not make a local aggregate branch. Mission Control's existing
-integration, qualification and closure evidence still applies. In v16 all
-mutation cells in one mission are pinned to its frozen target baseline.
-A later workspace still starts at that compiled base. After dispatch, the
-worker can explicitly incorporate current main before independent verification;
-the bridge never performs that merge automatically. If an already accepted
-head lacks a later main commit, v16 cannot replace that accepted evidence in
-place; a newly based mission is currently required. The bridge does not yet
-transfer baseline or test evidence across missions automatically.
+integration, qualification and closure evidence still applies. Worktrees and
+both accepted heads remain in the workspace reconciliation until their
+retention or cleanup has been independently accounted for.
 
 ## Qualification dependencies
 
-The original v16 proof inventory is retained, including checks tied to the
-source repository's historical `archive/mission-control-v6` fixture and its
-Mission Control CI workflow definitions. Those source-repository artifacts
-are not included in this fork. Consequently the original full template
-qualification cannot pass here yet: the legacy byte-custody test lacks the
-archive, and the proof-runner contract test cannot find the two original
-workflow definitions. The v16 golden lifecycle and the bridge's focused tests
-do not replace those missing proofs. A future fork-specific CI integration
-must supply equivalent evidence and preserve the existing required gates.
+The path-scoped `mission-control-bridge` workflow builds the fork's own `wt`
+binary and runs the bridge, v16 lifecycle and reference-fixture checks on
+Linux and Windows. This focused CI job does not claim the original template's
+full four-layer qualification. The original source-workflow custody and MCV6
+legacy-fixture proofs still belong to the retained full proof inventory; they
+require the private source repository and cannot run in public hosted CI
+without separately arranged read-only access.
+
+For a local full proof, provide a clean checkout of
+`SaiFlyBy/flybyrefactor` at `29efd0ffcac21717fd789da2c7020a7e02501e00`
+with its `.github` workflows and `archive/mission-control-v6` materialized.
+The legacy fixture also references historical Git objects; ensure the original
+repository can retrieve those objects. Set `MC_SOURCE_PROOF_REPO` to that
+checkout's absolute root and invoke the existing `tools/run_template_suite.py`
+with `--environment-mission-root` pointing to its real
+`archive/mission-control-v6`. The source-only tests verify the checkout's
+origin, exact commit and cleanliness before using it. The archive remains in
+the source checkout and is not published in this fork. The proof runner still
+requires all four layers and does not turn missing fixture evidence into a
+pass.

@@ -7,8 +7,11 @@ import re
 import unittest
 from pathlib import Path
 
+from source_fixture import source_proof_repo
+
 ROOT = Path(__file__).resolve().parents[1]
 REPO = ROOT.parent
+SOURCE_REPO = source_proof_repo(REPO)
 
 
 class EngineeringContractIndexSuite(unittest.TestCase):
@@ -194,7 +197,7 @@ class EngineeringContractIndexSuite(unittest.TestCase):
             self.assertTrue(source["mission_control_derivation"])
 
     def test_template_ci_uses_immutable_action_revisions_and_least_privilege(self) -> None:
-        workflow = REPO / ".github" / "workflows" / "mission-control-template.yml"
+        workflow = SOURCE_REPO / ".github" / "workflows" / "mission-control-template.yml"
         content = workflow.read_text(encoding="utf-8")
         self.assertIn("permissions:\n  contents: read", content)
         uses = re.findall(r"^\s*uses:\s*([^\s#]+)", content, flags=re.MULTILINE)

@@ -9,9 +9,11 @@ import sys
 import unittest
 from pathlib import Path
 
+from source_fixture import source_proof_repo
+
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
-REPO = ROOT.parent
+REPO = source_proof_repo(ROOT.parent)
 MCV6 = REPO / "archive" / "mission-control-v6"
 DESCRIPTOR = MCV6 / "frontier-102" / "MUTATION_DESCRIPTOR.json"
 A000_RECEIPT = MCV6 / "frontier-000" / "evidence" / "A000" / "context_receipt.json"

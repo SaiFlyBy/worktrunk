@@ -65,7 +65,7 @@ def file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def accepted_result(path: Path, cell_id: str, summary: str) -> None:
+def accepted_result(path: Path, cell_id: str, summary: str, head_override: str | None = None) -> None:
     value: dict[str, object] = {
         "schema": "flyby/mission-control-result/16",
         "cell_id": cell_id,
@@ -86,7 +86,7 @@ def accepted_result(path: Path, cell_id: str, summary: str) -> None:
                 value["target_outcomes"] = [{
                     "repository": target["repository"],
                     "baseline_sha": target["base_sha"].lower(),
-                    "head_sha": target["base_sha"].lower(),
+                    "head_sha": head_override or target["base_sha"].lower(),
                 }]
             elif packet.get("kind") in {"INTEGRATION", "QUALIFICATION"}:
                 current = json.loads((root / "control" / "CURRENT_AUTHORITY.json").read_text(encoding="utf-8"))
@@ -206,11 +206,11 @@ def adjudication(
     write_json(destination, value)
 
 
-def settle(root: Path, runtime: Path, cell_id: str, summary: str) -> None:
+def settle(root: Path, runtime: Path, cell_id: str, summary: str, head_override: str | None = None) -> None:
     result = root / f"{cell_id}-result.json"
     receipt = root / f"{cell_id}-context-receipt.json"
     decision = root / f"{cell_id}-adjudication.json"
-    accepted_result(result, cell_id, summary)
+    accepted_result(result, cell_id, summary, head_override=head_override)
     context_receipt(root, cell_id, receipt)
     adjudication(root, cell_id, result, receipt, decision)
     run(
@@ -455,6 +455,9 @@ def main() -> int:
         run(str(runtime), "compile", "--root", str(root), "--frontier", str(frontier))
         worktrees: dict[str, Path] = {}
         integration_wt = os.environ.get("WORKTRUNK_MC_TEST_WT")
+        handoff_mode = os.environ.get("WORKTRUNK_MC_TEST_HANDOFF") == "1"
+        if handoff_mode and not integration_wt:
+            raise RuntimeError("handoff test requires WORKTRUNK_MC_TEST_WT")
         if integration_wt:
             hook_dir = Path(tmp) / "git-hooks"
             hook_dir.mkdir()
@@ -518,13 +521,59 @@ def main() -> int:
         if not integration_wt:
             run(str(runtime), "dispatch", "--root", str(root), "--cell", "M000")
         run_fail(str(runtime), "dispatch", "--root", str(root), "--cell", "M001")
-        settle(root, runtime, "M000", "reference mutation accepted")
+        source_head = base_sha
+        if handoff_mode:
+            candidate = worktrees["M000"] / "reference-only" / "candidate.txt"
+            candidate.parent.mkdir()
+            candidate.write_text("accepted scope\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(worktrees["M000"]), "add", "reference-only/candidate.txt"], check=True)
+            subprocess.run(["git", "-C", str(worktrees["M000"]), "commit", "-m", "accepted scope"], check=True, capture_output=True)
+            source_head = subprocess.run(["git", "-C", str(worktrees["M000"]), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip().lower()
+        settle(root, runtime, "M000", "reference mutation accepted", head_override=source_head)
         if integration_wt:
             projected = json.loads(run(str(runtime.parent / "wt_mission.py"), "report",
                                        "--root", str(root), "--cell", "M000").stdout)
             if (projected["state"] != "ACCEPTED" or projected["worker_identity"] == projected["verifier_identity"]
-                    or projected["workspace"]["head_sha"] != base_sha or not projected["workspace"]["clean"]):
+                    or projected["workspace"]["head_sha"] != source_head or not projected["workspace"]["clean"]):
                 raise RuntimeError("adapter did not project the accepted scope and exact workspace")
+        if handoff_mode:
+            # Advance the local base independently after M000 has settled.
+            (target_repo / "main-advanced.txt").write_text("new main\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(target_repo), "add", "main-advanced.txt"], check=True)
+            subprocess.run(["git", "-C", str(target_repo), "commit", "-m", "advance main"], check=True, capture_output=True)
+            new_base = subprocess.run(["git", "-C", str(target_repo), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip().lower()
+            adapter = runtime.parent / "wt_mission.py"
+            run_fail(str(adapter), "handoff", "--root", str(root), "--cell", "M001",
+                     "--successor", "M003", "--frontier", "F201", "--base-sha", new_base)
+            handoff = json.loads(run(str(adapter), "handoff", "--root", str(root), "--cell", "M000",
+                                     "--successor", "M002", "--frontier", "F200", "--base-sha", new_base).stdout)
+            if (handoff["state"] != "SUCCESSOR_COMPILED" or handoff["source_head"] != source_head
+                    or handoff["observed_base"] != new_base or "main-advanced.txt" not in handoff["base_changed_paths"]):
+                raise RuntimeError("handoff did not preserve exact source/base and changed paths")
+            old_record = json.loads((root / "control" / "EXECUTION_STATE.json").read_text(encoding="utf-8"))["cells"]["M000"]
+            if handoff["accepted_evidence"]["result"]["sha256"] != old_record["result_sha256"]:
+                raise RuntimeError("handoff did not bind the accepted source evidence")
+            successor_path = Path(tmp) / "target-m002"
+            prepared = json.loads(run(str(adapter), "prepare", "--root", str(root), "--repo", str(target_repo),
+                "--cell", "M002", "--workspace-id", "ws-M002", "--branch", "mcv6/m002",
+                "--path", str(successor_path), "--wt", integration_wt,
+                "--expected-origin", "https://example.invalid/target.git",
+                "--worker", "golden-worker", "--verifier", "golden-verifier").stdout)
+            if prepared.get("base_sha") != base_sha or prepared.get("state") != "DISPATCHED":
+                raise RuntimeError("successor did not register at the exact compiled baseline")
+            for commit in (source_head, new_base):
+                subprocess.run(["git", "-C", str(successor_path), "merge", "--no-edit", commit], check=True, capture_output=True)
+            successor_head = subprocess.run(["git", "-C", str(successor_path), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip().lower()
+            for commit in (source_head, new_base):
+                subprocess.run(["git", "-C", str(successor_path), "merge-base", "--is-ancestor", commit, successor_head], check=True)
+            settle(root, runtime, "M002", "successor independently reassessed", head_override=successor_head)
+            run(str(runtime), "doctor", "--root", str(root))
+            still_source = subprocess.run(["git", "-C", str(worktrees["M000"]), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip().lower()
+            if still_source != source_head:
+                raise RuntimeError("handoff modified the original accepted worktree")
+            print(json.dumps({"state": "PASS", "handoff": "SUCCESSOR_INDEPENDENTLY_ACCEPTED",
+                              "source_head": source_head, "base_head": new_base, "successor_head": successor_head}))
+            return 0
         run_fail(str(runtime), "integrate", "--root", str(root))
         run(str(runtime), "dispatch", "--root", str(root), "--cell", "M001")
         settle(root, runtime, "M001", "serialized reference mutation accepted")

@@ -9,6 +9,7 @@ worktree or changes history as a side effect.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -263,6 +264,131 @@ def github_origin(origin: str, repository: str) -> bool:
     return bool(host and host.casefold() == "github.com" and origin_matches(origin, repository))
 
 
+HANDOFF_MARKER = "\nWORKTRUNK_HANDOFF_V1="
+HANDOFF_ACCEPTANCE = [
+    "Incorporate the accepted source head and the observed base without rewriting either; independently verify their combination and resolve conflicts.",
+    "Reassess each reused evidence item against the candidate, base, inputs, dependencies, test selection and toolchain; rerun affected or unknown checks or explicitly account for them.",
+]
+
+
+def changed_paths(repo: Path, old: str, new: str) -> list[str]:
+    # A bounded projection of the changed paths is advisory context, not proof
+    # that other test premises are unchanged. Keep stderr out of the pipe so a
+    # noisy Git process cannot block while stdout is being bounded.
+    argv = ["git", "-C", str(repo), "diff", "--no-ext-diff", "--no-textconv", "--name-only", "--no-renames", "-z", old, new, "--"]
+    try:
+        with tempfile.TemporaryFile() as errors:
+            proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=errors,
+                                    env=child_environment(os.environ))
+            assert proc.stdout is not None
+            data = proc.stdout.read(1_000_001)
+            proc.stdout.close()
+            if len(data) > 1_000_000:
+                proc.kill()
+                proc.wait()
+                raise BridgeError("Base change list exceeds the 1 MB handoff limit")
+            code = proc.wait()
+            if code:
+                errors.seek(0)
+                detail = errors.read(4096).decode("utf-8", errors="replace")
+                raise BridgeError(f"Git diff failed (exit {code}): {detail.strip()}")
+    except OSError as exc:
+        raise BridgeError(f"Cannot inspect base changes: {exc}") from exc
+    try:
+        paths = data.decode("utf-8").split("\0")
+    except UnicodeError as exc:
+        raise BridgeError("Base changes contain paths that cannot be represented as UTF-8") from exc
+    if paths and paths[-1] == "":
+        paths.pop()
+    return paths
+
+
+def handoff(args: argparse.Namespace) -> None:
+    root = Path(args.root).resolve()
+    if any(not re.fullmatch(r"[A-Z][A-Z0-9_-]{0,63}", value)
+           for value in (args.cell, args.successor, args.frontier)):
+        raise BridgeError("Cell and frontier IDs must be uppercase control IDs")
+    if args.cell == args.successor or not re.fullmatch(r"[0-9a-fA-F]{40}", args.base_sha):
+        raise BridgeError("A distinct successor and an exact 40-digit base SHA are required")
+    old_cell, record, packet = cell_info(root, args.cell)
+    report = scope_report(root, args.cell)
+    if record.get("state") != "ACCEPTED" or packet.get("kind") != "MUTATION":
+        raise BridgeError("Handoff requires an independently accepted mutation")
+    target, result, workspace = report.get("target"), report.get("result"), report.get("workspace")
+    if not all(isinstance(value, dict) for value in (target, result, workspace)):
+        raise BridgeError("Accepted target, result or workspace is missing")
+    outcomes = result.get("target_outcomes")
+    if not isinstance(outcomes, list) or len(outcomes) != 1 or not isinstance(outcomes[0], dict):
+        raise BridgeError("Accepted mutation must have one target outcome")
+    outcome = outcomes[0]
+    baseline = str(target.get("base_sha", "")).lower()
+    source = str(outcome.get("head_sha", "")).lower()
+    observed = args.base_sha.lower()
+    repository = target.get("repository")
+    if (outcome.get("repository") != repository or outcome.get("baseline_sha") != baseline
+            or not re.fullmatch(r"[0-9a-f]{40}", source)):
+        raise BridgeError("Accepted outcome does not bind the compiled target")
+    entry = ledger_entry(root, args.cell)
+    if (not workspace.get("clean") or workspace.get("head_sha") != source
+            or workspace.get("branch") != entry.get("branch")
+            or workspace.get("origin") != entry.get("remote_url")
+            or entry.get("repository") != repository or entry.get("base_sha") != baseline):
+        raise BridgeError("Accepted workspace custody or HEAD has changed")
+    repo = Path(workspace["path"])
+    if git(repo, "rev-parse", f"{observed}^{{commit}}").lower() != observed:
+        raise BridgeError("Observed base must be an exact local commit")
+    for head in (source, observed):
+        require_success(run(["git", "-C", str(repo), "merge-base", "--is-ancestor", baseline, head]),
+                        "Compiled baseline ancestry check")
+    if run(["git", "-C", str(repo), "merge-base", "--is-ancestor", observed, source]).returncode == 0:
+        raise BridgeError("Accepted head already contains this base; use publish directly")
+    if run(["git", "-C", str(repo), "merge-base", "--is-ancestor", source, observed]).returncode == 0:
+        raise BridgeError("The accepted head is already contained in this base; reconcile its publication")
+    merge_base = git(repo, "merge-base", source, observed).lower()
+    changes = changed_paths(repo, merge_base, observed)
+    evidence = {}
+    for kind in ("result", "context_receipt", "adjudication"):
+        ref, digest = record.get(kind + "_ref"), record.get(kind + "_sha256")
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise BridgeError(f"Accepted {kind} hash is missing or invalid")
+        try:
+            with safe_ref(root, ref).open("rb") as stream:
+                hasher = hashlib.sha256()
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    hasher.update(chunk)
+                actual = hasher.hexdigest()
+        except OSError as exc:
+            raise BridgeError(f"Cannot read accepted {kind} evidence: {exc}") from exc
+        if actual != digest:
+            raise BridgeError(f"Accepted {kind} evidence changed")
+        evidence[kind] = {"ref": ref, "sha256": digest}
+    payload = {"source_cell": args.cell, "source_attempt": record.get("attempt"),
+               "source_head": source, "repository": repository,
+               "compiled_base": baseline, "observed_base": observed,
+               "merge_base": merge_base, "base_changed_paths": changes,
+               "accepted_evidence": evidence}
+    successor = copy.deepcopy(old_cell)
+    successor["cell_id"] = args.successor
+    successor["dependencies"] = list(dict.fromkeys([*old_cell.get("dependencies", []), args.cell]))
+    successor["objective"] = old_cell["objective"].split(HANDOFF_MARKER, 1)[0] + HANDOFF_MARKER + json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    successor["acceptance"] = list(dict.fromkeys([*old_cell["acceptance"], *HANDOFF_ACCEPTANCE]))
+    frontier = {"schema": "flyby/mission-control-frontier/16", "frontier_id": args.frontier,
+                "cells": [successor]}
+    # Mission Control compiles and binds the descriptor into its authoritative
+    # DAG/context. It remains responsible for claims and independent settlement.
+    with tempfile.TemporaryDirectory(prefix="wt-mission-handoff-") as tmp:
+        descriptor = Path(tmp) / "frontier.json"
+        descriptor.write_text(json.dumps(frontier, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        try:
+            mc(root, "compile", "--frontier", str(descriptor))
+        except BridgeError as exc:
+            raise BridgeError(f"{exc}; inspect the mission frontier before retrying") from exc
+    print(json.dumps({"state": "SUCCESSOR_COMPILED", "cell": args.successor,
+                      "frontier": args.frontier, **payload,
+                      "next": "Prepare and dispatch the successor, then incorporate both heads and independently verify the evidence."},
+                     indent=2, ensure_ascii=False))
+
+
 def publish(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
     report = scope_report(root, args.cell)
@@ -353,6 +479,9 @@ def main() -> int:
     show = sub.add_parser("report", help="Show the recorded evidence for one scope")
     show.add_argument("--root", required=True)
     show.add_argument("--cell", required=True)
+    transfer = sub.add_parser("handoff", help="Compile a successor for an accepted scope after the base advances")
+    for flag in ("root", "cell", "successor", "frontier", "base-sha"):
+        transfer.add_argument("--" + flag, required=True)
     pr = sub.add_parser("publish", help="Publish one accepted scope as a draft PR")
     for flag in ("root", "cell", "base", "title", "body"):
         pr.add_argument("--" + flag, required=True)
@@ -370,6 +499,8 @@ def main() -> int:
             prepare(args)
         elif args.command == "report":
             print(json.dumps(scope_report(Path(args.root).resolve(), args.cell), indent=2))
+        elif args.command == "handoff":
+            handoff(args)
         elif args.command == "publish":
             publish(args)
         elif args.command == "settle":

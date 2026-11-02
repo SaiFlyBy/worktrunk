@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+from source_fixture import source_proof_repo
+
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 REPO = ROOT.parent
+SOURCE_REPO = source_proof_repo(REPO)
 RUNNER_PATH = ROOT / "tools" / "run_template_suite.py"
 
 
@@ -86,7 +90,7 @@ class ProofRunnerContractSuite(unittest.TestCase):
             self.assertEqual(hashlib.sha256(stderr.read_bytes()).hexdigest(), result["stderr_sha256"])
 
     def test_04_workflow_definition_guard_is_independent_and_pinned(self) -> None:
-        guard = (REPO / ".github" / "workflows" / "mission-control-workflow-lint.yml").read_text(encoding="utf-8")
+        guard = (SOURCE_REPO / ".github" / "workflows" / "mission-control-workflow-lint.yml").read_text(encoding="utf-8")
         self.assertIn('ACTIONLINT_VERSION: "1.7.12"', guard)
         self.assertIn('ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"', guard)
         self.assertIn("sha256sum --check --strict -", guard)
@@ -97,7 +101,7 @@ class ProofRunnerContractSuite(unittest.TestCase):
         self.assertIn("persist-credentials: false", guard)
 
     def test_05_primary_workflow_forces_environment_and_trusted_local_proof(self) -> None:
-        workflow = (REPO / ".github" / "workflows" / "mission-control-template.yml").read_text(encoding="utf-8")
+        workflow = (SOURCE_REPO / ".github" / "workflows" / "mission-control-template.yml").read_text(encoding="utf-8")
         self.assertIn("--environment-mission-root archive/mission-control-v6", workflow)
         self.assertIn("trusted-self-hosted-template-suite:", workflow)
         self.assertIn("runs-on: [self-hosted, windows, x64]", workflow)
@@ -119,6 +123,25 @@ class ProofRunnerContractSuite(unittest.TestCase):
         self.assertGreaterEqual(self_hosted.count("shell: cmd"), 5)
         self.assertIn("needs: [template-suite, trusted-self-hosted-template-suite]", workflow)
         self.assertNotIn("PYTHONPYCACHEPREFIX: ${{ runner.temp }}/flyby-mcv-pycache\n    strategy:", workflow)
+
+    def test_06_fork_bridge_workflow_tests_current_source(self) -> None:
+        workflow = (REPO / ".github" / "workflows" / "mission-control-bridge.yaml").read_text(encoding="utf-8")
+        self.assertIn("pull_request:", workflow)
+        self.assertIn("permissions:\n  contents: read", workflow)
+        self.assertIn("persist-credentials: false", workflow)
+        self.assertIn("cargo build --locked --bin wt", workflow)
+        self.assertIn("tests/test_wt_mission.py", workflow)
+        self.assertIn("tests/test_runtime_state_machine.py", workflow)
+        self.assertIn("tools' / 'test_template_v16.py", workflow)
+        self.assertIn("WORKTRUNK_MC_TEST_HANDOFF", workflow)
+        self.assertIn("ubuntu-24.04", workflow)
+        self.assertIn("windows-2025", workflow)
+        self.assertNotIn("self-hosted", workflow)
+        self.assertNotIn("secrets.", workflow)
+        actions = re.findall(r"^\s*uses:\s*([^\s#]+)", workflow, flags=re.MULTILINE)
+        self.assertTrue(actions)
+        for action in actions:
+            self.assertRegex(action, r"@[0-9a-f]{40}$", action)
 
 
 if __name__ == "__main__":
