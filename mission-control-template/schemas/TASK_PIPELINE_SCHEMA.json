@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-task-pipeline/1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "pipeline_id",
+    "overseer_role",
+    "topology",
+    "scheduler",
+    "phases",
+    "items"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "flyby/task-pipeline/1"
+    },
+    "pipeline_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "overseer_role": {
+      "type": "string",
+      "minLength": 1
+    },
+    "topology": {
+      "enum": [
+        "PARALLEL_ITEMS_SERIAL_PHASES",
+        "SERIAL_ITEMS_SERIAL_PHASES"
+      ]
+    },
+    "scheduler": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "initial_population",
+        "successor_materialization",
+        "assignment_order",
+        "completion_handoff",
+        "mailbox_delivery"
+      ],
+      "properties": {
+        "initial_population": {
+          "const": "PHASE_0_ONLY"
+        },
+        "successor_materialization": {
+          "const": "APPEND_ON_PREDECESSOR_TERMINAL"
+        },
+        "assignment_order": {
+          "const": "EARLIEST_ELIGIBLE_IDLE"
+        },
+        "completion_handoff": {
+          "const": "AUTO_ASSIGN_NEXT_TO_COMPLETING_SEAT"
+        },
+        "mailbox_delivery": {
+          "const": "DURABLE_COLLAB_INBOX"
+        }
+      }
+    },
+    "phases": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "instruction",
+          "different_from_previous",
+          "distinct_lineage_seat"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "instruction": {
+            "type": "string",
+            "minLength": 1
+          },
+          "skill": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "required_role": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "different_from_previous": {
+            "type": "boolean"
+          },
+          "distinct_lineage_seat": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "summary"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "resource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

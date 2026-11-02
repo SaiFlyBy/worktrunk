@@ -1,0 +1,8 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"flyby/mission-control/context-amendment-v1.schema.json",
+  "title":"Mission Control ContextAmendmentRequest",
+  "type":"object","additionalProperties":false,
+  "required":["schema","request_id","cell_id","missing_contract","why_insufficient","minimum_additional_locators","expected_effect"],
+  "properties":{"schema":{"const":"flyby/mission-control-context-amendment/1"},"request_id":{"type":"string","minLength":1},"cell_id":{"type":"string","minLength":1},"missing_contract":{"type":"string","minLength":1},"why_insufficient":{"type":"string","minLength":1},"minimum_additional_locators":{"type":"array","minItems":1,"items":{"type":"string"}},"expected_effect":{"type":"string"},"worker_may_continue_before_decision":{"const":false}}
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-frontier/16",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "frontier_id", "cells"],
+  "properties": {
+    "schema": {"const": "flyby/mission-control-frontier/16"},
+    "frontier_id": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Z][A-Z0-9_-]*$"},
+    "cells": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "CELL_SCHEMA.json"}
+    }
+  }
+}

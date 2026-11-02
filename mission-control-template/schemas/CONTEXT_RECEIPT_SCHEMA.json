@@ -1,0 +1,18 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"flyby/mission-control/context-receipt-v1.schema.json",
+  "title":"Mission Control ContextReceipt",
+  "type":"object","additionalProperties":false,
+  "required":["schema","receipt_id","cell_id","worker","base_head","manifest_ref","consumed","partial_or_unavailable","approved_extra_context","assumptions","unknowns","semantic_coverage","safe_reuse_scope","unsafe_reuse_scope","continuation"],
+  "properties":{
+    "schema":{"const":"flyby/mission-control-context-receipt/1"},
+    "receipt_id":{"type":"string","minLength":1},"cell_id":{"type":"string","minLength":1},
+    "worker":{"type":"object","required":["identity","session_id"],"properties":{"identity":{"type":"string"},"session_id":{"type":["string","null"]}},"additionalProperties":false},
+    "base_head":{"type":"string","minLength":7},"manifest_ref":{"type":"string","minLength":1},"manifest_hash":{"type":["string","null"]},
+    "consumed":{"type":"array","items":{"type":"string"}},
+    "partial_or_unavailable":{"type":"array","items":{"type":"object","required":["context_id","state","reason"],"properties":{"context_id":{"type":"string"},"state":{"enum":["PARTIAL","UNAVAILABLE","STALE","INCOMPATIBLE"]},"reason":{"type":"string"}},"additionalProperties":false}},
+    "approved_extra_context":{"type":"array","items":{"type":"object","required":["locator","approval_ref","reason"],"properties":{"locator":{"type":"string"},"approval_ref":{"type":"string"},"reason":{"type":"string"}},"additionalProperties":false}},
+    "capsules_used":{"type":"array","items":{"type":"string"}},"assumptions":{"type":"array","items":{"type":"string"}},"unknowns":{"type":"array","items":{"type":"string"}},"semantic_coverage":{"type":"array","items":{"type":"string"}},"explicitly_not_covered":{"type":"array","items":{"type":"string"}},"estimated_context_consumed":{"type":["integer","null"],"minimum":0},"compaction_or_restart_events":{"type":"array","items":{"type":"string"}},"safe_reuse_scope":{"type":"array","items":{"type":"string"}},"unsafe_reuse_scope":{"type":"array","items":{"type":"string"}},
+    "continuation":{"type":"object","required":["session_reusable","reason"],"properties":{"session_reusable":{"type":"boolean"},"session_id":{"type":["string","null"]},"reason":{"type":"string"}},"additionalProperties":false}
+  }
+}

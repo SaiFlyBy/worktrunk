@@ -1,0 +1,36 @@
+{
+  "schema": "flyby/source-review-turn-chain-index/1",
+  "adoption_ref": "evidence/REFERENCE_TURN_CONTRACT_ADOPTION.json",
+  "adoption_sha256": "9bb3408a6266dcfc241d767b288c3001ff0bda9fba2dc1724747efb4ba6e3452",
+  "legacy_pre_enforcement": [],
+  "post_enforcement_generations": [
+    {
+      "source_id": "repo-reference-source",
+      "source_ref": "example/reference@0123456789abcdef0123456789abcdef01234567",
+      "thread_id": "codex://threads/reference-source-review-generation-1",
+      "generation": 1,
+      "provider": "mailbox.codex",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "rights_mode": "LICENSE_PERMITTED_REUSE",
+      "execution_custody": "DIRECT_TOP_LEVEL_SESSION",
+      "critical_partitions": [
+        "architecture",
+        "validation",
+        "target-integration"
+      ],
+      "critical_partition_manifest_sha256": "59664af4b800cf47cb186fa251b69412cabf43488ac4958e73c20ebc191e5fea",
+      "turns": [
+        {
+          "turn_number": 1,
+          "ref": "SOURCE_REVIEW_TURN.json",
+          "sha256": "aebc3eb883d371767e79acab0e94897d9a9d7aef82300e69008e0fc839d3223f"
+        }
+      ],
+      "state": "ACTIVE",
+      "target_base": "0123456789abcdef0123456789abcdef01234567",
+      "launch_receipt_ref": "evidence/REFERENCE_DIRECT_LAUNCH_RECEIPT.json",
+      "launch_receipt_sha256": "5db59c086f9d9a32ea7e49a3678567e1ad4518d82d462eb46a50c9d80e15de96"
+    }
+  ]
+}

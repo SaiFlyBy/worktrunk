@@ -1,0 +1,30 @@
+{
+  "schema": "flyby/mission-control-performance-scenarios/1",
+  "scenarios": [
+    {
+      "id": "S0_IDLE",
+      "purpose": "Bootstrapped mission doctor with no compiled work.",
+      "work_units": 0
+    },
+    {
+      "id": "S1_SMALL_STATE",
+      "purpose": "Doctor over a small synthetic pending frontier.",
+      "work_units": 32
+    },
+    {
+      "id": "S4_PARALLEL",
+      "purpose": "Independent dispatch correctness under concurrent callers.",
+      "work_units": 8
+    },
+    {
+      "id": "S8_LARGE_STATE",
+      "purpose": "Doctor over a larger synthetic pending frontier to detect algorithmic explosion.",
+      "work_units": 128
+    },
+    {
+      "id": "S9_SOAK",
+      "purpose": "Repeated doctor/status execution with no durable-state or temporary-file drift.",
+      "work_units": 25
+    }
+  ]
+}

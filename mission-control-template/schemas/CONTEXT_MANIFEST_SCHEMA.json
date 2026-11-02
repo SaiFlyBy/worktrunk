@@ -1,0 +1,15 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"flyby/mission-control/context-manifest-v1.schema.json",
+  "title":"Mission Control ContextManifest",
+  "type":"object","additionalProperties":false,
+  "required":["schema","manifest_id","cell_id","base_head","items","manifest_hash_policy"],
+  "properties":{
+    "schema":{"const":"flyby/mission-control-context-manifest/1"},
+    "manifest_id":{"type":"string","minLength":1},"cell_id":{"type":"string","minLength":1},"base_head":{"type":"string","minLength":7},
+    "items":{"type":"array","minItems":1,"items":{"$ref":"#/$defs/item"}},
+    "capsules":{"type":"array","items":{"type":"object","required":["capsule_id","version","purpose"],"properties":{"capsule_id":{"type":"string"},"version":{"type":"string"},"purpose":{"type":"string"}},"additionalProperties":false}},
+    "manifest_hash_policy":{"enum":["CANONICAL_JSON_SHA256","IMPLEMENTATION_EQUIVALENT_CONTENT_HASH"]}
+  },
+  "$defs":{"item":{"type":"object","additionalProperties":false,"required":["context_id","kind","source","locator","purpose","requirement","freshness","influence_class"],"properties":{"context_id":{"type":"string"},"kind":{"enum":["FILE","FILE_RANGE","SYMBOL","TEST","RECEIPT","CAPSULE","STATE_OBJECT","GRAPH_QUERY","SOURCE_SNAPSHOT","OTHER"]},"source":{"type":"string"},"locator":{"type":"string"},"version":{"type":["string","null"]},"hash":{"type":["string","null"]},"purpose":{"type":"string"},"requirement":{"enum":["REQUIRED","OPTIONAL"]},"freshness":{"type":"string"},"influence_class":{"type":"string"},"estimated_size":{"type":["integer","null"],"minimum":0}}}}
+}

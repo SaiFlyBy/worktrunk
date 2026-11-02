@@ -1,0 +1,63 @@
+{
+  "schema": "flyby/mission-control-workspace-reconciliation/16",
+  "mission_id": "REFERENCE-MCV16",
+  "scope": {
+    "included": "reference mission canonical control workspace and branches/worktrees explicitly created for example/target",
+    "excluded": "all unrelated repositories and workspaces"
+  },
+  "control_workspaces": [
+    {
+      "workspace_id": "control-authority",
+      "head_sha": null,
+      "disposition": "CANONICAL",
+      "evidence": [
+        {
+          "ref": "control/CURRENT_AUTHORITY.json",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ]
+    }
+  ],
+  "target_repositories": [
+    {
+      "repository": "example/target",
+      "accepted_head_sha": "0123456789abcdef0123456789abcdef01234567",
+      "branches": [
+        {
+          "workspace_id": "ws-M000",
+          "branch": "mcv6/m000",
+          "head_sha": "0123456789abcdef0123456789abcdef01234567",
+          "worktree_path": "example-target-m000",
+          "dirty": false,
+          "semantic_status_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+          "remote_url": "https://example.invalid/target.git",
+          "disposition": "SUPERSEDED_PRESERVED",
+          "evidence": [
+            {
+              "ref": "handoff/QUALIFICATION.json",
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+            }
+          ]
+        },
+        {
+          "workspace_id": "ws-M001",
+          "branch": "mcv6/m001",
+          "head_sha": "0123456789abcdef0123456789abcdef01234567",
+          "worktree_path": "example-target-m001",
+          "dirty": false,
+          "semantic_status_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+          "remote_url": "https://example.invalid/target.git",
+          "disposition": "ACCEPTED_HEAD",
+          "evidence": [
+            {
+              "ref": "handoff/QUALIFICATION.json",
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "historical_material": [],
+  "closure_ready": true
+}

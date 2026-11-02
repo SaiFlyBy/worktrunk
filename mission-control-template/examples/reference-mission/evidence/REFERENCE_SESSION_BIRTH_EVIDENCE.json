@@ -1,0 +1,26 @@
+{
+  "schema": "flyby/provider-session-birth-evidence/1",
+  "thread_id": "codex://threads/reference-source-review-generation-1",
+  "provider": "mailbox.codex",
+  "birth_type": "DIRECT_TOP_LEVEL_START",
+  "approval_policy": "never",
+  "sandbox_policy": "danger-full-access",
+  "child_thread_created": false,
+  "delegation_used": false,
+  "session_birth_lines": [
+    {
+      "type": "turn_context",
+      "payload": {
+        "approval_policy": "never",
+        "sandbox_policy": "danger-full-access"
+      }
+    },
+    {
+      "type": "response_item",
+      "payload": {
+        "type": "message",
+        "role": "assistant"
+      }
+    }
+  ]
+}

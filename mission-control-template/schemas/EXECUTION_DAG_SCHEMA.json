@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-execution-dag/16",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "mission_id", "revision", "cells"],
+  "properties": {
+    "schema": {"const": "flyby/mission-control-execution-dag/16"},
+    "mission_id": {"type": "string", "minLength": 1},
+    "revision": {"type": "integer", "minimum": 1},
+    "cells": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "object"}
+    }
+  }
+}

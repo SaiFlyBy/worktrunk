@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-result/16",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "cell_id", "outcome", "summary", "evidence"],
+  "properties": {
+    "schema": {"const": "flyby/mission-control-result/16"},
+    "cell_id": {"type": "string", "minLength": 1},
+    "outcome": {"enum": ["ACCEPTED", "REJECTED", "FAILED", "BLOCKED", "PARTIAL"]},
+    "summary": {"type": "string", "minLength": 1},
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "value"],
+        "properties": {
+          "kind": {"type": "string", "minLength": 1},
+          "value": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "target_outcomes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["repository", "baseline_sha", "head_sha"],
+        "properties": {
+          "repository": {"type": "string", "minLength": 1},
+          "baseline_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+          "head_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+        }
+      }
+    },
+    "integrated_mutations": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["cell_id", "repository", "head_sha"],
+        "properties": {
+          "cell_id": {"type": "string", "minLength": 1},
+          "repository": {"type": "string", "minLength": 1},
+          "head_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+        }
+      }
+    }
+  }
+}

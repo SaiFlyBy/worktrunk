@@ -1,0 +1,25 @@
+{
+  "schema": "flyby/mission-control-retained-tests/1",
+  "active_proofs": [
+    "tests/test_template_coherence.py",
+    "tests/test_test_classification.py",
+    "tests/test_engineering_contracts.py",
+    "tests/test_source_collection_contract.py",
+    "tests/test_source_surface_evidence.py",
+    "tests/test_engineering_contract_index.py",
+    "tests/test_ci_waiver_contract.py",
+    "tests/test_engineering_rights_contract.py",
+    "tests/test_mutation_plan_traceability.py",
+    "tests/test_high_assurance_gate.py",
+    "tests/test_proof_runner_contract.py",
+    "tests/test_reference_fixture_byte_custody.py",
+    "tests/test_legacy_fixture_byte_custody.py",
+    "tests/test_source_review_turn_chain.py",
+    "tests/test_runtime_state_machine.py",
+    "tests/test_performance_characterization.py",
+    "tests/test_mission_control.py",
+    "tools/test_template_v16.py",
+    "tests/test_wt_mission.py"
+  ],
+  "retirements": []
+}

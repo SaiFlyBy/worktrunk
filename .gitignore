@@ -33,3 +33,7 @@ test-results/
 !/.config/clawpatch/features
 /.config/clawpatch/features/*
 !/.config/clawpatch/features/feat_custom_*.json
+
+# Mission Control Python bytecode
+/mission-control-template/**/__pycache__/
+/mission-control-template/**/*.py[cod]

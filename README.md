@@ -2,6 +2,9 @@
 
 <h1><img src="docs/public/logo.png" alt="Worktrunk logo" width="50" align="absmiddle">&nbsp;&nbsp;Worktrunk</h1>
 
+> FlyBy fork: [Mission Control worktree and PR workflow](mission-control-template/WORKTRUNK.md) | [Privacy and network inventory](docs/PRIVACY_FLYBY.md)
+
+
 <!-- Crates.io badge below disabled while shields.io is rate-limited by crates.io
      (renders "CRATES.IO: INVALID"). Tracking: badges/shields#11879. Restore once fixed.
      [![Crates.io](https://img.shields.io/crates/v/worktrunk?style=for-the-badge&logo=rust)](https://crates.io/crates/worktrunk)

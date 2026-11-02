@@ -1,0 +1,77 @@
+{
+  "schema": "flyby/mission-control-test-layers/1",
+  "order": [
+    "unit_regression",
+    "e2e",
+    "performance_load",
+    "environment_integration"
+  ],
+  "layers": {
+    "unit_regression": {
+      "required": true,
+      "proofs": [
+        "tests/test_template_coherence.py",
+        "tests/test_test_classification.py",
+        "tests/test_engineering_contracts.py",
+        "tests/test_source_collection_contract.py",
+        "tests/test_source_surface_evidence.py",
+        "tests/test_engineering_contract_index.py",
+        "tests/test_ci_waiver_contract.py",
+        "tests/test_engineering_rights_contract.py",
+        "tests/test_mutation_plan_traceability.py",
+        "tests/test_high_assurance_gate.py",
+        "tests/test_proof_runner_contract.py",
+        "tests/test_reference_fixture_byte_custody.py",
+        "tests/test_legacy_fixture_byte_custody.py",
+        "tests/test_source_review_turn_chain.py"
+      ],
+      "commands": [
+        ["python", "tests/test_template_coherence.py"],
+        ["python", "tests/test_test_classification.py"],
+        ["python", "tests/test_engineering_contracts.py"],
+        ["python", "tests/test_source_collection_contract.py"],
+        ["python", "tests/test_source_surface_evidence.py"],
+        ["python", "tests/test_engineering_contract_index.py"],
+        ["python", "tests/test_ci_waiver_contract.py"],
+        ["python", "tests/test_engineering_rights_contract.py"],
+        ["python", "tests/test_mutation_plan_traceability.py"],
+        ["python", "tests/test_high_assurance_gate.py"],
+        ["python", "tests/test_proof_runner_contract.py"],
+        ["python", "tests/test_reference_fixture_byte_custody.py"],
+        ["python", "tests/test_legacy_fixture_byte_custody.py"],
+        ["python", "tests/test_source_review_turn_chain.py"]
+      ]
+    },
+    "e2e": {
+      "required": true,
+      "proofs": [
+        "tests/test_runtime_state_machine.py",
+        "tools/test_template_v16.py",
+        "tests/test_wt_mission.py"
+      ],
+      "commands": [
+        ["python", "tests/test_runtime_state_machine.py"],
+        ["python", "tools/test_template_v16.py"],
+        ["python", "tests/test_wt_mission.py"]
+      ]
+    },
+    "performance_load": {
+      "required": true,
+      "proofs": [
+        "tests/test_performance_characterization.py"
+      ],
+      "commands": [
+        ["python", "tests/test_performance_characterization.py"]
+      ]
+    },
+    "environment_integration": {
+      "required": true,
+      "proofs": [
+        "tests/test_mission_control.py"
+      ],
+      "commands": [
+        ["python", "tests/test_mission_control.py", "--mission-root", "${MISSION_ROOT}"]
+      ]
+    }
+  }
+}

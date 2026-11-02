@@ -1,0 +1,14 @@
+{
+  "schema": "flyby/mission-control-source-independent-review/16",
+  "source_id": "reference-method",
+  "reviewer": "reference-golden-verifier",
+  "reviewer_identity": "reference-golden-verifier",
+  "extractor_identity": "reference-golden-reviewer",
+  "source_record_sha256": "a77896c6354fdd071f499e54b8b84f78a3dde20f3da85e1d0e6ae14c69f7abf8",
+  "coverage_sha256": "e3d3ea88c2052212515bcea26e3b0c4c4d59c5945954ac80e18fa5535864e584",
+  "contributions_sha256": "cab446cdb90dee079319e62f8a8b7e727ab4eed041a5a87fa54f3c9fac840d51",
+  "decision": "VERIFIED",
+  "inspection_evidence": [
+    "independently checked exact source identity, adaptive review coverage and source-local contribution accounting"
+  ]
+}

@@ -1,0 +1,430 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-source-review-turn/2.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "adoption_sha256",
+    "source_binding",
+    "turn_metadata",
+    "evidence",
+    "turn_payload",
+    "turn_sha256"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "flyby/source-review-turn-contract/2.1"
+    },
+    "adoption_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "source_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "source_identity",
+        "rights_mode",
+        "thread_id",
+        "generation",
+        "provider",
+        "model",
+        "reasoning_effort",
+        "execution_custody",
+        "child_thread_created",
+        "delegation_used",
+        "critical_partition_manifest_sha256",
+        "target_base",
+        "launch_receipt_sha256"
+      ],
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_identity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rights_mode": {
+          "enum": [
+            "OWNER_AUTHORIZED_REUSE",
+            "LICENSE_PERMITTED_REUSE",
+            "CLEAN_ROOM_BEHAVIORAL_SYNTHESIS"
+          ]
+        },
+        "thread_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "provider": {
+          "enum": [
+            "mailbox.wslcodex",
+            "mailbox.codex"
+          ]
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reasoning_effort": {
+          "type": "string",
+          "minLength": 1
+        },
+        "execution_custody": {
+          "const": "DIRECT_TOP_LEVEL_SESSION"
+        },
+        "child_thread_created": {
+          "const": false
+        },
+        "delegation_used": {
+          "const": false
+        },
+        "critical_partition_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "target_base": {
+          "type": "string",
+          "minLength": 1
+        },
+        "launch_receipt_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "turn_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "turn_number",
+        "phase",
+        "phase_authorization",
+        "phase_contract_sha256",
+        "instruction_ref",
+        "instruction_sha256",
+        "prior_turn_sha256"
+      ],
+      "properties": {
+        "turn_number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "phase": {
+          "enum": [
+            "EXHAUSTIVE_DISCOVERY",
+            "OMISSION_AND_ADVERSARIAL_CHALLENGE",
+            "TARGET_INTEGRATION_DEEPENING",
+            "ADAPTIVE_CONTINUATION"
+          ]
+        },
+        "phase_authorization": {
+          "enum": [
+            "CONVERGENCE_FORBIDDEN",
+            "CONVERGENCE_PERMITTED_IF_EXHAUSTED"
+          ]
+        },
+        "phase_contract_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "instruction_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "instruction_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "prior_turn_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ref",
+        "sha256",
+        "kind"
+      ],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "kind": {
+          "enum": [
+            "TURN_TRANSCRIPT",
+            "TURN_OUTPUT",
+            "SOURCE_REVIEW_ARTIFACT",
+            "MIXED_EVIDENCE"
+          ]
+        },
+        "checkpoints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "checkpoint_ref",
+              "checkpoint_sha256",
+              "checkpoint_sequence"
+            ],
+            "properties": {
+              "checkpoint_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "checkpoint_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "checkpoint_sequence": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "turn_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "disposition_status",
+        "covered_critical_partitions",
+        "uninspected_critical_partitions",
+        "material_omissions_remaining",
+        "inspected_locators",
+        "extracted_contributions",
+        "verdict_rationale"
+      ],
+      "properties": {
+        "disposition_status": {
+          "enum": [
+            "IN_PROGRESS",
+            "CONVERGED"
+          ]
+        },
+        "covered_critical_partitions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "uninspected_critical_partitions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "material_omissions_remaining": {
+          "type": "boolean"
+        },
+        "inspected_locators": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source_ref",
+              "path",
+              "locator",
+              "content_sha256"
+            ],
+            "properties": {
+              "source_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "locator": {
+                "type": "string",
+                "minLength": 1
+              },
+              "content_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        "extracted_contributions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "contribution_id",
+              "mechanism_id",
+              "source_locators",
+              "rights_mode",
+              "reuse_class",
+              "concrete_derivation",
+              "obligations",
+              "runtime_intercept"
+            ],
+            "properties": {
+              "contribution_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "mechanism_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source_locators": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "source_ref",
+                    "path",
+                    "locator",
+                    "content_sha256"
+                  ],
+                  "properties": {
+                    "source_ref": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "locator": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "content_sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    }
+                  }
+                }
+              },
+              "rights_mode": {
+                "enum": [
+                  "OWNER_AUTHORIZED_REUSE",
+                  "LICENSE_PERMITTED_REUSE",
+                  "CLEAN_ROOM_BEHAVIORAL_SYNTHESIS"
+                ]
+              },
+              "reuse_class": {
+                "enum": [
+                  "PARAPHRASED_SYNTHESIS",
+                  "ADAPTED_IMPLEMENTATION",
+                  "DIRECT_REUSE",
+                  "MIXED"
+                ]
+              },
+              "concrete_derivation": {
+                "type": "string",
+                "minLength": 1
+              },
+              "obligations": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "runtime_intercept": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "phase",
+                  "execution_order",
+                  "state_in",
+                  "state_out",
+                  "composition_mode"
+                ],
+                "properties": {
+                  "phase": {
+                    "enum": [
+                      "PRE_PROMPT_COMPILE",
+                      "TOOL_AFFORDANCE_FILTER",
+                      "AGENT_STEP_BOUNDARY",
+                      "SESSION_STATE_TRANSITION",
+                      "WORKTREE_FS_HOOK",
+                      "KNOWLEDGE_MEMORY_UPDATE",
+                      "OFFLINE_SEARCH_COMPILE",
+                      "EVAL_HARNESS_GATE",
+                      "PROVENANCE_CONTROL",
+                      "POST_EXECUTION_AUDIT"
+                    ]
+                  },
+                  "execution_order": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "state_in": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "state_out": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "composition_mode": {
+                    "enum": [
+                      "PIPELINE_TRANSFORM",
+                      "GATE_VETO",
+                      "STATE_OVERLAY",
+                      "DISCRETE_EXCLUSIVE"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "verdict_rationale": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "turn_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

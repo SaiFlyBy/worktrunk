@@ -1,0 +1,23 @@
+{
+  "schema": "flyby/mission-control-direct-launch-receipt/1",
+  "source_id": "repo-reference-source",
+  "source_ref": "example/reference@0123456789abcdef0123456789abcdef01234567",
+  "generation": 1,
+  "target_base": "0123456789abcdef0123456789abcdef01234567",
+  "assigned_thread_id": "codex://threads/reference-source-review-generation-1",
+  "provider": "mailbox.codex",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "max",
+  "approval_policy": "never",
+  "sandbox_policy": "danger-full-access",
+  "execution_custody": "DIRECT_TOP_LEVEL_SESSION",
+  "child_thread_created": false,
+  "delegation_used": false,
+  "launch_api": "mailbox.codex.start",
+  "launch_observed_at": "2026-09-02T00:00:00Z",
+  "turn_1_prompt_ref": "evidence/REFERENCE_TURN_1_PROMPT.txt",
+  "turn_1_prompt_sha256": "c0fa44781a3f5cd9187584632e1596059cb4879ead1d245ba6e5ef822f024d26",
+  "session_birth_evidence_ref": "evidence/REFERENCE_SESSION_BIRTH_EVIDENCE.json",
+  "session_birth_evidence_sha256": "2afba2a47762e6e9f8fff5c276ee4cdecf8a457f1a31e4910f24239645de59eb",
+  "receipt_sha256": "0a49cf7d66259a8b1457f804cf6fe1be2bca785fcd3558b01b00f548b6a4c3fe"
+}

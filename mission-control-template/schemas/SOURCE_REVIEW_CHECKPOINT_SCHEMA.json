@@ -1,0 +1,377 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-source-review-checkpoint/1",
+  "title": "SourceReviewCheckpoint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "checkpoint_id",
+    "source_id",
+    "source_ref",
+    "source_identity",
+    "source_version",
+    "thread",
+    "turn_number",
+    "checkpoint_sequence",
+    "previous_checkpoint_sha256",
+    "authority_status",
+    "convergence_status",
+    "completion_flag",
+    "license_and_rights_evidence",
+    "coverage_cursor",
+    "mechanism_candidates",
+    "mc_reinterpretation_hypotheses",
+    "rejected_or_non_adoptable",
+    "failure_and_adversarial_notes",
+    "confidence_and_open_questions",
+    "unresolved_rights_issues",
+    "next_read_cursor"
+  ],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "flyby/source-review-checkpoint/1"
+    },
+    "checkpoint_id": {
+      "type": "string",
+      "minLength": 3
+    },
+    "source_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_identity": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "thread": {
+      "type": "string",
+      "minLength": 1
+    },
+    "turn_number": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "checkpoint_sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "previous_checkpoint_sha256": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      ]
+    },
+    "authority_status": {
+      "type": "string",
+      "enum": [
+        "NON_AUTHORITATIVE_SCRATCH"
+      ]
+    },
+    "convergence_status": {
+      "type": "string",
+      "enum": [
+        "IN_PROGRESS",
+        "TRANCHE_COMPLETE",
+        "CONVERGENCE_PROPOSED"
+      ]
+    },
+    "completion_flag": {
+      "type": "boolean"
+    },
+    "license_and_rights_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "license_locator",
+        "rights_state"
+      ],
+      "properties": {
+        "license_locator": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rights_state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "declared_permissions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "third_party_notices_required": {
+          "type": "boolean"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "coverage_cursor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inspected_partition",
+        "inspected_paths",
+        "inspected_commit_or_version",
+        "completed_partitions",
+        "remaining_partitions"
+      ],
+      "properties": {
+        "inspected_partition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inspected_paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "inspected_commit_or_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inspected_range_or_locator": {
+          "type": "string"
+        },
+        "completed_partitions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "remaining_partitions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "mechanism_candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "candidate_id",
+          "name",
+          "finding_class",
+          "evidence_locator",
+          "target_applicability"
+        ],
+        "properties": {
+          "candidate_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidence_locator": {
+            "type": "string",
+            "minLength": 1
+          },
+          "target_applicability": {
+            "type": "string",
+            "minLength": 1
+          },
+          "summary": {
+            "type": "string"
+          },
+          "finding_class": {
+            "type": "string",
+            "const": "SOURCE_FACT"
+          }
+        }
+      }
+    },
+    "mc_reinterpretation_hypotheses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "hypothesis_id",
+          "finding_class",
+          "target_mechanism_name",
+          "independent_design_notes"
+        ],
+        "properties": {
+          "hypothesis_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "target_mechanism_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "independent_design_notes": {
+            "type": "string",
+            "minLength": 1
+          },
+          "clean_room_justification": {
+            "type": "string"
+          },
+          "finding_class": {
+            "type": "string",
+            "const": "ENGINEERING_INFERENCE"
+          }
+        }
+      }
+    },
+    "rejected_or_non_adoptable": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "locator",
+          "rejection_rationale"
+        ],
+        "properties": {
+          "locator": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string"
+          },
+          "rejection_rationale": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "failure_and_adversarial_notes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "locator",
+          "note",
+          "impact"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "FAILURE_MODE",
+              "ADVERSARIAL_CHALLENGE",
+              "NEGATIVE_EVIDENCE"
+            ]
+          },
+          "locator": {
+            "type": "string",
+            "minLength": 1
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1
+          },
+          "impact": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "confidence_and_open_questions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "confidence_rating",
+        "open_questions",
+        "resolved_questions"
+      ],
+      "properties": {
+        "confidence_rating": {
+          "type": "string",
+          "enum": [
+            "LOW",
+            "MEDIUM",
+            "HIGH"
+          ]
+        },
+        "open_questions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "uninspected_gaps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "unresolved_rights_issues": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "next_read_cursor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_next_partition",
+        "target_next_paths",
+        "stop_condition"
+      ],
+      "properties": {
+        "target_next_partition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target_next_paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "target_next_range": {
+          "type": "string"
+        },
+        "stop_condition": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "scratch_evidence_ref": {
+      "type": "string"
+    },
+    "scratch_evidence_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

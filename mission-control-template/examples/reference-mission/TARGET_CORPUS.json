@@ -1,0 +1,50 @@
+{
+  "schema": "flyby/mission-control-target-corpus/16",
+  "mission_id": "REFERENCE-MCV16",
+  "requirements": [
+    {
+      "id": "REF-001",
+      "name": "Reference mutation lifecycle is evidence-backed",
+      "sources": [
+        "owner-intent",
+        "reference-method"
+      ],
+      "mechanisms": [
+        "MECH-REF-001"
+      ],
+      "targets": [
+        "example/target"
+      ],
+      "acceptance": [
+        "both reference mutation cells settle accepted evidence",
+        "integration and qualification preserve requirement lineage"
+      ],
+      "derivation": {
+        "owned_abstraction": "Reference evidence-backed lifecycle",
+        "combines_with": [
+          "Mission Control independent adjudication"
+        ],
+        "preserves": [
+          "worker/verifier custody separation"
+        ],
+        "non_goals": [
+          "donor implementation replication"
+        ],
+        "verification_strategy": [
+          "exercise source -> mechanism -> requirement -> cell accounting in the golden test"
+        ],
+        "copyright_posture": "CLEAN_ROOM_BEHAVIORAL_SYNTHESIS"
+      }
+    }
+  ],
+  "provenance_materialization": {
+    "mode": "TARGET_HAS_NO_LINEAGE_MANIFEST",
+    "target_refs": [],
+    "coverage_requirement_id": null,
+    "authority": "LINEAGE_ONLY",
+    "acceptance": [
+      "Reference fixture explicitly records that no target-native lineage manifest exists."
+    ],
+    "validation_schema_ref": null
+  }
+}
