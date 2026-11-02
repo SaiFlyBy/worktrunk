@@ -1,28 +1,15 @@
 # Worktrunk CI automation
 
-The generic security model is in https://github.com/max-sixty/tend/blob/main/docs/security-model.md. This file records the Worktrunk-specific boundaries; verify current GitHub settings before changing them.
+The fork keeps test results, Rust coverage, and benchmark outputs as GitHub Actions artifacts. Do not add third-party analytics, coverage uploads, or agent/bot workflows without an explicit decision. `.config/tend.yaml` disables the pinned generator's ordinary agent workflows; normal regeneration must continue to generate none.
 
-## Bot identity
+## Admission and execution
 
-worktrunk-bot is a PAT-backed GitHub user with write access. Only the repo owner can merge to main. The Merge access and Tag operations rulesets enforce those limits; required checks are test (linux), test (macos), test (windows), and fast-checks.
+For the checked-in workflows, PR jobs that initiate tests run only when the head repository is this repository; a maintainer can deliberately bring an admitted change into a repository branch or run an authorized dispatch. Untrusted PRs can change their own workflow definitions, so these source-level guards are not an enforcement boundary. GitHub's repository setting must require approval for all external contributors to enforce that boundary. `pull_request_target` must not execute candidate code. Use GitHub-hosted runners for PR work, not a maintainer's local runner. Verify current repository settings rather than assuming they match this policy. GitHub can report a skipped job as successful for required-check evaluation; a skipped PR is not tested. Require successful checks for the admitted exact candidate before acceptance.
 
-## Tokens and environments
+## Reports and release destinations
 
-- tend admits main and holds CODEX_AUTH_JSON and TEND_BOT_TOKEN for concurrent agent jobs.
-- release admits tags and holds AUR_SSH_PRIVATE_KEY, TEND_BOT_TOKEN, and SIGNPATH_API_TOKEN; it also gates packslip signing and crates.io Trusted Publishing through OIDC.
-- github-pages admits main and uses OIDC without a stored secret.
-- CODECOV_TOKEN is a repo secret allowlisted for coverage upload.
-
-A job naming an environment can reference all its secrets through the secrets context; pass each secret only to the step that needs it. Signing and publishing share release because their ref gates are the same. The branch and tag policies are security gates: do not broaden them to make a workflow run. Tag environments admit every tag because the Tag operations ruleset controls creation and movement. tend and release each hold TEND_BOT_TOKEN because their admitted refs differ.
-
-Generated tend agent workflows use environment {name: tend, deployment: false}. The deployment flag prevents pull_request_target runs from creating misleading deployment records on PRs. Edit the generator or its config, not generated tend-*.yaml files.
-
-Codex subscription refresh is external (`codex.auth_refresh: false`). Mackup's account rotator owns the refreshable logins and publishes access-only CODEX_AUTH_JSON with the CODEX_ACCOUNT environment variable. Refresh tokens stay on the rotator's host.
-
-## Sandbox toolchain
-
-Tend agents run in a copy-on-write view of the runner checkout and home. The `tend-setup` action installs the gate's tools; the following `setup` step checks their presence. Keep the probe when changing setup. A binary on PATH does not guarantee its service is reachable: Nix currently cannot connect to its daemon from the sandbox, so a flake.lock refresh needs a different execution path.
+Code coverage is Rust-only; do not infer Python integration coverage from it. The tag-triggered release workflow publishes GitHub release artifacts and may use Sigstore via packslip. The upstream SignPath organization is not configured; Windows artifacts are unsigned. Publishing packages to external registries requires a separate, explicit setup for this fork. Environment secrets are available to jobs naming the environment: pass each secret only to the step that needs it, and do not broaden branch or tag policies to make a job run. Upstream-owned Tend, gist, Winget, Homebrew tap, and AUR bot publishing are not configured in this fork. The optional `pre-commit.ci` app, if installed, is controlled outside this repository; its inherited config alone neither proves installation nor disables it.
 
 ## Build environment
 
-Swatinem/rust-cache hashes the CARGO* and RUST* variables visible at the cache step. Workflows sharing a cache must set the same variables before that step. A mismatch restores nothing without failing the job. Generated tend workflows currently build cold; measure restore cost before adding a separate cache scheme.
+Swatinem/rust-cache hashes the CARGO* and RUST* variables visible at the cache step. Workflows sharing a cache must set the same variables before that step. A mismatch restores nothing without failing the job. Keep the existing tests and checks unless an evidence-based change justifies adjusting them.

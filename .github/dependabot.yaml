@@ -39,8 +39,7 @@ updates:
       # TypeScript 7 lockfile makes `npm ci` fail ERESOLVE and takes the docs
       # build down. This blocks every future major, not just 7 — drop it once
       # `@astrojs/check`'s peer range covers the current `typescript` major.
-      # The weekly pin-bump pass owns that check; see
-      # `.claude/skills/running-tend/SKILL.md`.
+      # Review this restriction during regular dependency maintenance.
       - dependency-name: "typescript"
         update-types:
           - version-update:semver-major

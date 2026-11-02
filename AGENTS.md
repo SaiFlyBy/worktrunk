@@ -18,7 +18,7 @@ Worktrunk is a CLI with a growing user base. New commands, flags, and config key
 
 ## Skills
 
-Load writing-user-outputs before changing visible CLI text, running-tend for Tend CI, and release for a release. Project-local skills live in .claude/skills/, linked for Codex from .agents/skills/.
+Load writing-user-outputs before changing visible CLI text, and release for a release. Project-local skills live in .claude/skills/, linked for Codex from .agents/skills/.
 
 ## Worktree Model
 
@@ -88,7 +88,7 @@ A post-hook batch spawns one detached pipeline per source. A source can run inde
 
 ## Coverage
 
-codecov/patch is a merge gate even if GitHub marks it optional. Fix real gaps; do not bend the design to a predicted percentage. A failing patch check requires explicit approval before merge. Check runs appear after the coverage job, not in commit statuses. Investigation commands are in tests/AGENTS.md.
+Inspect relevant coverage evidence and fix real gaps. CI retains Rust coverage and JUnit results as GitHub Actions artifacts; it does not upload them to Codecov or produce a Codecov patch status. Rust coverage does not measure the Python Mission Control integration; use its own tests and report missing evidence honestly. See tests/AGENTS.md.
 
 ## Code Quality
 

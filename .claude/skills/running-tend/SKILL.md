@@ -1,66 +1,22 @@
 ---
 name: running-tend
-description: Worktrunk-specific guidance for tend CI workflows. Adds codecov polling, Rust test commands, labels, and review criteria on top of the bundled tend-ci-runner skills. Use when operating in CI.
+description: Historical Worktrunk Tend guidance retained as a manual review reference; Tend workflows are disabled in this fork.
 metadata:
   internal: true
 ---
 
 # Worktrunk Tend CI
 
-Project-specific guidance for tend workflows running on worktrunk (a Rust
-CLI for managing git worktrees). The bundled `run-tend`, `review`, and `triage`
-skills provide the workflow framework; this skill adds worktrunk conventions.
+The fork does not run the upstream Tend workflows. This file is retained as a
+historical manual-review reference; its descriptions of Tend automation are not
+active fork policy. Do not enable external services or send messages based on
+this file alone. Current CI guidance is in `.github/AGENTS.md`.
 
-## Filing issues in other repos
+## Coverage evidence
 
-Standing exception granted: file directly in agent-equipped targets (per
-**Filing issues** in the bundled `act-in-other-repos` skill)
-without asking permission here first. The default rule (open an issue here asking
-permission first) still applies when the target shows no agent signals.
-
-## Codecov Monitoring
-
-After required CI checks pass, poll `codecov/patch` — it is mandatory despite
-being marked non-required:
-
-```bash
-for i in $(seq 1 5); do
-  CODECOV=$(gh pr checks <number> 2>&1 | grep 'codecov/patch' || true)
-  if echo "$CODECOV" | grep -q 'pass'; then
-    echo "codecov/patch passed"; exit 0
-  elif echo "$CODECOV" | grep -q 'fail'; then
-    echo "codecov/patch FAILED"; exit 1
-  fi
-  sleep 60
-done
-```
-
-If codecov fails **locally**, investigate with `task coverage` and
-`cargo llvm-cov report --show-missing-lines | grep <file>`.
-
-### Investigating codecov failures in CI
-
-`task` and `cargo-llvm-cov` are not installed in the `tend-setup` action.
-Don't try to `cargo install` them in the sandbox — past attempts at
-source-compiling installs cascaded into bash-tool interrupts that blocked
-even `pwd` and `echo`. Instead, query Codecov directly, following
-`tests/AGENTS.md` → **Coverage Investigation** for the endpoints and their
-traps. The scratch paths there and below go to `${TMPDIR:-/tmp}` — write new
-ones the same way.
-
-If the Codecov API markers aren't enough, download the `code-coverage-report`
-artifact from the PR head's `coverage` workflow run — it contains a
-`cobertura.xml` with per-line hit counts:
-
-```bash
-REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
-# Find the coverage run on the PR head SHA:
-CI_RUN=$(gh api "repos/$REPO/commits/<sha>/check-runs" --jq '.check_runs[] | select(.name == "code-coverage") | .details_url | capture("runs/(?<id>[0-9]+)") | .id')
-# List artifacts, then download the coverage one:
-gh api "repos/$REPO/actions/runs/$CI_RUN/artifacts" --jq '.artifacts[] | {name, id}'
-gh api "repos/$REPO/actions/artifacts/<id>/zip" > "${TMPDIR:-/tmp}/coverage.zip"
-unzip -q "${TMPDIR:-/tmp}/coverage.zip" -d "${TMPDIR:-/tmp}/coverage"
-```
+Use the GitHub `code-coverage-report` artifact or local `task coverage` to
+inspect Rust coverage. Python integration tests have separate evidence; there
+is no Codecov upload or Codecov patch-status gate in this fork.
 
 ## Test Commands
 
@@ -101,7 +57,7 @@ shape is one `<session-id>.jsonl` under a single slugified directory.
 Before opening a PR for a CI failure, classify it:
 
 - **Transient infrastructure** (link-check timeouts, apt-get flakes, GitHub
-  outages, runner disk issues, codecov upload blips) — do **not** create a
+  outages, runner disk issues) — do **not** create a
   PR. The maintainer will rerun CI. Comment on the run or exit silently; a
   permanent config change for a one-off timeout is churn the maintainer will
   close.
@@ -141,11 +97,6 @@ GitHub blocks both `gh run rerun --failed` and per-job rerun
 finish, so dismiss-then-wait-then-rerun cascades into a long session for no
 benefit — the maintainer can rerun the failed job directly once `benchmarks`
 clears, or merge regardless if the failure is clearly a flake.
-
-The codecov-failure dismissal pattern is different and remains correct:
-`AGENTS.md` requires explicit user approval before merging with failing
-`codecov/patch`, so dismissing the approval until the coverage gap is
-addressed is intentional.
 
 ## Weigh the root-cause fix before shipping a workaround
 
@@ -269,8 +220,7 @@ MSRV bump past a stale pin fails both jobs before they check anything.
 
 `flake.nix` reads the channel from `rust-toolchain.toml`, so no separate bump
 is needed. After updating the toolchain, refresh `flake.lock` so the locked
-`rust-overlay` revision knows about the new version. `tend-setup` installs Nix
-with flakes enabled:
+`rust-overlay` revision knows about the new version. With Nix and flakes enabled:
 
 ```bash
 # Name the input: a bare `nix flake update` also relocks nixpkgs, an
@@ -285,15 +235,6 @@ succeed. A failure is reported in the PR, never worked around: leave the file
 alone if the update fails, `git checkout flake.lock` if the eval does, and
 hand-compute an entry in neither case.
 
-**Expect both commands to fail from tend 0.2.5 on, with `cannot create Unix
-domain socket: Address family not supported by protocol`.** `nix` resolves on
-the agent's PATH, but the multi-user client reaches the store by connecting to
-`/nix/var/nix/daemon-socket/socket`, and the sandbox blocks
-`socket(AF_UNIX, …)` outright — still true under 0.2.14's systemd unit. That
-is the reported failure above, not a problem with the bump: say so in the PR,
-leave `flake.lock` untouched, and carry the rest of the toolchain change as
-normal. It clears when max-sixty/tend#1197 gives the action a lever for it.
-
 After bumping, run the full test suite (`cargo run -- hook pre-merge --yes`)
 and verify `cargo msrv verify` passes.
 
@@ -301,10 +242,10 @@ and verify `cargo msrv verify` passes.
 
 Pinned third-party versions in CI are invisible to Dependabot — it follows `Cargo.toml` deps and `uses: foo@vN` action refs, not inline `version:` strings. They drift unless this step bumps them.
 
-Each weekly run checks every pin below against upstream and bumps whatever has drifted. A bump that can turn a whole CI leg red — an OS image, a major version, a tool whose version moves snapshots — goes on its own branch and PR, so a red matrix decides only that bump instead of holding back the week's safe ones. The weekly runner is Linux, so that PR's own checks are the only place a macOS or Windows change gets tested; open it and report what they said.
+A maintainer can periodically check every pin below against upstream and bumps whatever has drifted. A bump that can turn a whole CI leg red — an OS image, a major version, a tool whose version moves snapshots — goes on its own branch and PR, so a red matrix decides only that bump instead of holding back the week's safe ones. The PR's own checks are the only place a macOS or Windows change gets tested; open it and report what they said.
 
-- **`baptiste0928/cargo-install@v3` blocks** in `.github/workflows/{affected,ci,coverage,nightly}.yaml` and `.github/actions/{test,tend}-setup/action.yaml` — every `version: "=X.Y.Z"` against `cargo info <crate>`. Today: `cargo-affected`, `cargo-insta`, `cargo-nextest`, `cargo-llvm-cov`, `cargo-msrv`, `cargo-udeps`, `lychee`, `worktrunk`. `cargo-affected` is pinned twice in `affected.yaml`; move both together. Verify each crate's `rust-version` against the pinned toolchain and note compatibility in the PR body (see PR #1657 for the format).
-- **`hustcer/setup-nu@v3`** `version:` input — latest from `gh api repos/nushell/nushell/releases/latest --jq '.tag_name'`. Five call sites: `coverage.yaml` (`code-coverage`), `nightly.yaml` (`feature-powerset`), `benchmarks.yaml` (`benchmarks`), and `.github/actions/{test,tend}-setup/action.yaml` — `tend-setup`'s copy is what puts `nu` in the agent's sandbox, so it moves with the others.
+- **`baptiste0928/cargo-install@v3` blocks** in `.github/workflows/{affected,ci,coverage,nightly}.yaml` and `.github/actions/test-setup/action.yaml` — every `version: "=X.Y.Z"` against `cargo info <crate>`. Today: `cargo-affected`, `cargo-insta`, `cargo-nextest`, `cargo-llvm-cov`, `cargo-msrv`, `cargo-udeps`, `lychee`, `worktrunk`. `cargo-affected` is pinned twice in `affected.yaml`; move both together. Verify each crate's `rust-version` against the pinned toolchain and note compatibility in the PR body (see PR #1657 for the format).
+- **`hustcer/setup-nu@v3`** `version:` input — latest from `gh api repos/nushell/nushell/releases/latest --jq '.tag_name'`. The current call sites include coverage, nightly, benchmarks, and `.github/actions/test-setup/action.yaml`.
 - **Codex Cloud tools** — `.codex/cloud.sh` pins pre-commit, cargo-insta, cargo-nextest, Nushell, and PowerShell; `setup-web` pins Nushell and PowerShell. Keep cargo-insta, cargo-nextest, and Nushell level with `.github/actions/test-setup/action.yaml`, which pins the same three — the gate runs `--all-features`, so Nushell's version moves PTY snapshots. Nothing under `.github/` pins PowerShell (CI runs whatever the runner image ships), so bump that one on its own.
 - **Docs site packages** in `docs/package.json` are covered by Dependabot's `/docs` npm entry. Do not duplicate those bumps in this manual pin pass. The one thing that pass does own is the `ignore` entry for `typescript` majors in `.github/dependabot.yaml`: it suppresses the proposal Dependabot would otherwise make, so nothing else can surface it. Check `npm view @astrojs/check peerDependencies.typescript` against the current `typescript` major and delete the entry once the range covers it — the rule is version-agnostic, so left in place it blocks a major `@astrojs/check` fully supports just as silently as the TypeScript 7 it was added for (#3877).
 - **Runner images** — every `runs-on:` label and matrix `os:`/`runner:` value in the workflows. A pin equals what its `-latest` label currently resolves to, per the availability table in `actions/runner-images`:
@@ -320,7 +261,6 @@ Each weekly run checks every pin below against upstream and bumps whatever has d
 
   Where a pin is deliberately held back, that comment says what the repo needs from the older image. Re-check that need against the newer image each week — upstream announces image changes as issues, so `gh search issues --repo actions/runner-images "<the need> <newer image>"` surfaces a reversal. Reading the cited issue's state is not the test — an announcement closes when its change ships, in either direction.
 
-  The `tend-*.yaml` workflows also pin a runner, but tend's generator writes them and `uvx tend@latest init` overwrites a hand edit; file a tend issue for those.
 
 Discovery shortcut: a recent green CI run on `main` flags cargo-install drift directly via workflow annotations. `gh run view <run-id> --json jobs --jq '.jobs[].databaseId' | xargs -I{} gh api repos/<owner>/<repo>/check-runs/{}/annotations` returns one warning per outdated pin.
 
@@ -342,9 +282,8 @@ jq -n --arg cwd "$PWD" '{
   context_window: {used_percentage: 42.0}
 }' > "${TMPDIR:-/tmp}/statusline-input.json"
 
-# Debug build on purpose. `tend-weekly` installs no `wt` and restores no Rust
-# cache, so `--release` means a cold optimized build of the whole dependency
-# graph before the first render. The duplicate `(command, context)` pairs this
+# Debug build on purpose. A cold `--release` build compiles the whole
+# dependency graph before the first render. The duplicate `(command, context)` pairs this
 # check reads are profile-independent; only the timing columns, which this
 # section doesn't triage, would be worth a release build.
 cargo run -- -vv list statusline --format=claude-code \

@@ -61,7 +61,7 @@ jobs:
   # `nightly` workflow (nightly cron, the `nightly` label, and before a
   # release) — NOT push-to-main: a failure there means affected under-selected,
   # and that must not redden main. Nightly failures are non-blocking and
-  # Tend-fixable. The Linux `--unreferenced reject` orphan check, intrinsically
+  # maintainer-investigated. The Linux `--unreferenced reject` orphan check, intrinsically
   # full-suite, rides `full-tests` too.
   #
   # Cache strategy:
@@ -173,7 +173,7 @@ jobs:
 
   affected-tests:
     name: affected tests (${{ matrix.name }}, advisory)
-    if: github.event_name == 'pull_request'
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id }}
     strategy:
       fail-fast: false
       matrix:

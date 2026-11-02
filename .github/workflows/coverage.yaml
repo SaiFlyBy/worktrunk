@@ -7,13 +7,8 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-# Keyed per-commit on main, so a merge train can't cancel a queued upload:
-# GitHub cancels the pending run whenever a newer one joins the group, and
-# codecov picks a PR's base by walking back to the newest ancestor that has a
-# report. A main commit that skips its upload therefore leaves later PRs
-# comparing against a stale base. That's why coverage sits outside `ci`, whose
-# group is shared with jobs that hold a run open for hours. PR runs still
-# supersede their own.
+# Keep a separate coverage run and its GitHub artifact for each main commit.
+# A newer run for the same PR supersedes its earlier run.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -27,6 +22,7 @@ env:
 
 jobs:
   code-coverage:
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id) }}
     runs-on: ubuntu-24.04
     steps:
     - name: 📂 Checkout code
@@ -71,16 +67,3 @@ jobs:
       with:
         name: code-coverage-report
         path: cobertura.xml
-
-    - name: Upload to codecov.io
-      uses: codecov/codecov-action@v7.1.1
-      with:
-        use_pypi: true
-        version: 11.3.1
-        files: cobertura.xml
-        # Soft-fail on fork PRs: secrets aren't available there, so we rely on
-        # tokenless upload, which can hiccup. Keep hard-fail on the main repo.
-        # The head repo is what tells the two apart — `github.repository_owner`
-        # is the base repo's owner on a fork PR too.
-        fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-        token: ${{ secrets.CODECOV_TOKEN }}
