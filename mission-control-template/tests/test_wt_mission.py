@@ -91,11 +91,12 @@ class PublishTests(unittest.TestCase):
         push = next(call for call in self.calls if "push" in call)
         self.assertIn(self.head + ":refs/heads/scope/one", push)
         self.assertIn("--force-with-lease=refs/heads/scope/one:", push)
-        self.assertTrue(any(part.startswith("remote.wt-mission-") and part.endswith(".mirror=false") for part in push))
-        self.assertTrue(any(part.startswith("--config-env=remote.wt-mission-") for part in push))
+        self.assertIn("remote.origin.mirror=false", push)
+        self.assertIn("remote.origin.pushurl=", push)
+        self.assertIn("--config-env=remote.origin.pushurl=WT_MISSION_PUSH_URL", push)
         self.assertEqual(self.push_env["WT_MISSION_PUSH_URL"], self.push_urls[0])
         self.assertNotIn(self.push_urls[0], push)
-        self.assertNotIn("origin", push)
+        self.assertIn("origin", push)
         self.assertIn("--no-follow-tags", push)
         self.assertIn("--recurse-submodules=no", push)
         self.assertNotIn("--force", push)
@@ -153,6 +154,18 @@ class PublishTests(unittest.TestCase):
             self.invoke()
         self.assertNotIn("secret-token", str(raised.exception))
         self.assertIn("reconcile", str(raised.exception))
+
+    def test_unsupported_pushurl_reset_blocks_before_upload(self):
+        original = self.run_command
+        def old_git(argv, **kwargs):
+            if "remote.origin.pushurl=wt-mission-binding-probe" in argv:
+                self.calls.append(argv)
+                return subprocess.CompletedProcess(argv, 0, "wt-mission-binding-probe\n" + self.push_urls[0] + "\n", "")
+            return original(argv, **kwargs)
+        self.run_command = old_git
+        with self.assertRaisesRegex(bridge.BridgeError, "Git cannot safely bind"):
+            self.invoke()
+        self.assertFalse(any("push" in call or ("pr" in call and "create" in call) for call in self.calls))
 
     def test_changed_base_blocks_before_push(self):
         self.remote_base = "c" * 40
@@ -451,7 +464,9 @@ class RealGitPublishTests(unittest.TestCase):
             git_at("-C", str(repo), "remote", "add", "origin", "fixture:fetch")
             git_at("-C", str(repo), "config", f"url.{good_url}.insteadOf", "fixture:fetch")
             git_at("-C", str(repo), "config", "--add", f"url.{good_url}.insteadOf", "fixture:push")
+            git_at("-C", str(repo), "config", "--add", f"url.{good_url}.insteadOf", "fixture:push-second")
             git_at("-C", str(repo), "config", "remote.origin.pushurl", "fixture:push")
+            git_at("-C", str(repo), "config", "--add", "remote.origin.pushurl", "fixture:push-second")
             original_system = root / "system.gitconfig"
             original_system.write_text(
                 f"[url {bridge.config_quote(bad_url)}]\n\tinsteadOf = {bridge.config_quote(good_url)}\n"
@@ -461,7 +476,38 @@ class RealGitPublishTests(unittest.TestCase):
             probe = git_at("-C", str(repo), "push", "--dry-run", good_url,
                            "HEAD:refs/heads/probe")
             self.assertIn(bad_url, probe.stderr.replace("\\", "/"))
-            self.assertEqual(git_at("-C", str(repo), "remote", "get-url", "--push", "origin").stdout.strip(), good_url)
+            self.assertEqual(git_at("-C", str(repo), "remote", "get-url", "--push", "--all", "origin").stdout.splitlines(),
+                             [good_url, good_url])
+            # Both fixtures are inert and live only in this disposable repo.
+            # The hook records its actual arguments and enforces the origin
+            # name; receivepack records real origin-specific transport use.
+            hook_output, transport_output = root / "hook.txt", root / "transport.txt"
+            hook = repo / ".git" / "hooks" / "pre-push"
+            hook.write_text("#!/bin/sh\n"
+                            "printf '%s\\n' \"$1\" \"$2\" \"$PWD\" > \"$WT_MISSION_TEST_HOOK_OUTPUT\"\n"
+                            "[ \"$1\" = origin ] || exit 37\n", encoding="utf-8")
+            hook.chmod(hook.stat().st_mode | 0o111)
+            transport = root / "receive-pack.sh"
+            transport.write_text("#!/bin/sh\n"
+                                 "printf '%s\\n' \"$1\" > \"$WT_MISSION_TEST_TRANSPORT_OUTPUT\"\n"
+                                 "exec git receive-pack \"$@\"\n", encoding="utf-8")
+            transport.chmod(transport.stat().st_mode | 0o111)
+            git_at("-C", str(repo), "config", "remote.origin.receivepack", f'. "{transport.as_posix()}"')
+            git_at("-C", str(repo), "config", "remote.origin.proxy", "http://127.0.0.1:9")
+            git_at("-C", str(repo), "config", "remote.origin.proxyAuthMethod", "basic")
+            env.update({"WT_MISSION_TEST_HOOK_OUTPUT": str(hook_output),
+                        "WT_MISSION_TEST_TRANSPORT_OUTPUT": str(transport_output)})
+            accepting_hook = hook.read_text(encoding="utf-8")
+            hook.write_text("#!/bin/sh\n"
+                            "printf '%s\\n' \"$1\" > \"$WT_MISSION_TEST_HOOK_OUTPUT\"\n"
+                            "exit 37\n", encoding="utf-8")
+            with patch.dict(os.environ, env, clear=True):
+                rejected = bridge.push_to_verified_destination(repo, good_url, head, "refs/heads/hook-rejected")
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertEqual(hook_output.read_text(encoding="utf-8").strip(), "origin")
+            self.assertNotEqual(git_at("--git-dir", str(good), "rev-parse", "--verify",
+                                      "refs/heads/hook-rejected", check=False).returncode, 0)
+            hook.write_text(accepting_hook, encoding="utf-8")
             report = {"state": "ACCEPTED", "kind": "MUTATION",
                 "target": {"repository": "owner/repo", "base_sha": base},
                 "result": {"target_outcomes": [{"repository": "owner/repo", "baseline_sha": base, "head_sha": head}]},
@@ -470,21 +516,29 @@ class RealGitPublishTests(unittest.TestCase):
             args = bridge.argparse.Namespace(root=str(root), cell="M000", base="main",
                                              title="Scope", body="Evidence", gh="gh-fixture")
             real_run = bridge.run
-            seen = {"push": False, "system_setting": False}
+            seen = {"push": False, "system_setting": False, "origin_settings": False}
             def run_fixture(argv, **kwargs):
                 if argv[0] == "gh-fixture":
                     return subprocess.CompletedProcess(argv, 0, "[]" if "list" in argv else "https://github.com/owner/repo/pull/1", "")
                 if "push" in argv:
                     seen["push"] = True
                     # Change the named origin after its final validation, before Git runs.
-                    git_at("-C", str(repo), "config", "remote.origin.pushurl", bad_url)
-                    self.assertNotIn("origin", argv)
+                    git_at("-C", str(repo), "config", "--add", "remote.origin.pushurl", bad_url)
+                    self.assertIn("origin", argv)
                     self.assertNotIn(good_url, argv)
                     self.assertEqual(kwargs["env"]["WT_MISSION_PUSH_URL"], good_url)
                     setting = git_at("-C", str(repo), "config", "--get", "http.lowSpeedLimit", git_env=kwargs["env"])
                     seen["system_setting"] = setting.stdout.strip() == "12345"
+                    proxy = git_at("-C", str(repo), "config", "--get", "remote.origin.proxy", git_env=kwargs["env"])
+                    auth = git_at("-C", str(repo), "config", "--get", "remote.origin.proxyAuthMethod", git_env=kwargs["env"])
+                    seen["origin_settings"] = (proxy.stdout.strip(), auth.stdout.strip()) == ("http://127.0.0.1:9", "basic")
                 kwargs.setdefault("env", env)
-                return real_run(argv, **kwargs)
+                result = real_run(argv, **kwargs)
+                if "push" in argv and result.returncode:
+                    hook_state = hook_output.read_text(encoding="utf-8") if hook_output.exists() else "missing"
+                    transport_state = transport_output.read_text(encoding="utf-8") if transport_output.exists() else "missing"
+                    self.fail(f"disposable Git push failed: {result.stderr}; hook={hook_state}; transport={transport_state}")
+                return result
             with patch.dict(os.environ, env, clear=True), \
                  patch.object(bridge, "scope_report", return_value=report), \
                  patch.object(bridge, "ledger_entry", return_value={"branch": "scope/one", "remote_url": good_url,
@@ -494,7 +548,11 @@ class RealGitPublishTests(unittest.TestCase):
                  contextlib.redirect_stdout(io.StringIO()) as output:
                 bridge.publish(args)
             self.assertEqual(json.loads(output.getvalue())["state"], "DRAFT_PR_CREATED")
-            self.assertEqual(seen, {"push": True, "system_setting": True})
+            self.assertEqual(seen, {"push": True, "system_setting": True, "origin_settings": True})
+            hook_lines = hook_output.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(hook_lines[:2], ["origin", good_url])
+            self.assertTrue(hook_lines[2].replace("\\", "/").endswith("/repo"))
+            self.assertIn("good.git", transport_output.read_text(encoding="utf-8"))
             self.assertEqual(git_at("--git-dir", str(good), "rev-parse", "refs/heads/scope/one").stdout.strip(), head)
             self.assertNotEqual(git_at("--git-dir", str(bad), "rev-parse", "--verify", "refs/heads/scope/one", check=False).returncode, 0)
 

@@ -53,8 +53,10 @@ An explicitly requested publication uses the accepted workspace head and opens
 one draft PR. It checks every effective push destination against the compiled
 GitHub repository, the live remote base, the branch and the accepted evidence.
 The push binds one of those verified destinations to that invocation, including
-when Git URL rewrites are configured. A new remote branch is created with an
-atomic absence lease; an existing branch is never overwritten. It never
+when Git URL rewrites are configured. It checks that Git supports clearing a
+push URL list for one command and stops before upload if that capability is
+missing. A new remote branch is created with an atomic absence lease; an
+existing branch is never overwritten. It never
 squashes, rebases, merges or deletes a worktree:
 
 ```sh

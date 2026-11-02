@@ -14,7 +14,6 @@ import hashlib
 import json
 import os
 import re
-import secrets
 import subprocess
 import sys
 import tempfile
@@ -460,16 +459,22 @@ def push_to_verified_destination(repo: Path, destination: str, candidate: str,
         env["GIT_CONFIG_SYSTEM"] = str(system_config)
         env["GIT_CONFIG_NOSYSTEM"] = "0"
         env["WT_MISSION_PUSH_URL"] = destination
-        # This random per-process remote exists only in the command's config;
-        # neither a later origin.pushurl change nor remote-name resolution can
-        # replace its validated URL. Keeping the URL in the environment avoids
-        # exposing embedded credentials in the process command line.
-        remote = "wt-mission-" + secrets.token_hex(16)
-        return run(["git", "-C", str(repo),
-                    f"--config-env=remote.{remote}.url=WT_MISSION_PUSH_URL",
-                    "-c", f"remote.{remote}.mirror=false", "push",
+        # Git treats an empty pushurl as clearing the preceding list. These
+        # process-only options then add exactly the verified URL, while keeping
+        # the origin name for hooks and origin-specific transport settings.
+        # The URL stays out of the process command line if it has credentials.
+        binding = ["-c", "remote.origin.pushurl=",
+                   "--config-env=remote.origin.pushurl=WT_MISSION_PUSH_URL"]
+        # Older Git versions append empty push URLs rather than clearing the
+        # list. Test this exact behavior with a sentinel before any upload.
+        probe = run(["git", "-C", str(repo), "-c", "remote.origin.pushurl=wt-mission-binding-probe",
+                     *binding, "remote", "get-url", "--push", "--all", "origin"], env=env)
+        if probe.returncode or probe.stdout.splitlines() != [destination]:
+            raise BridgeError("This Git cannot safely bind the verified push URL; use a Git version that supports clearing push URLs")
+        return run(["git", "-C", str(repo), *binding,
+                    "-c", "remote.origin.mirror=false", "push",
                     "--no-follow-tags", "--recurse-submodules=no",
-                    f"--force-with-lease={branch_ref}:", remote, f"{candidate}:{branch_ref}"], env=env)
+                    f"--force-with-lease={branch_ref}:", "origin", f"{candidate}:{branch_ref}"], env=env)
 
 
 def publish(args: argparse.Namespace) -> None:
