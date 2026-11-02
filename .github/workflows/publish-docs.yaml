@@ -10,7 +10,16 @@ on:
       - 'src/cli/mod.rs'
       - '.github/actions/docs-build/**'
       - '.github/workflows/publish-docs.yaml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'src/cli/mod.rs'
+      - '.github/actions/docs-build/**'
+      - '.github/workflows/publish-docs.yaml'
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -23,6 +32,8 @@ jobs:
     steps:
       - name: 📂 Checkout code
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: 🕷️ Check and build docs
         uses: ./.github/actions/docs-build
@@ -37,7 +48,7 @@ jobs:
     runs-on: ubuntu-24.04
 
     # Don't attempt to publish if on a fork
-    if: ${{ github.repository_owner == 'max-sixty' }}
+    if: ${{ github.event_name != 'pull_request' && github.repository_owner == 'max-sixty' }}
 
     permissions:
       pages: write
