@@ -5,12 +5,13 @@ The inspected CLI source and dependency declarations showed no usage-telemetry
 client or analytics reporting module. Local command logs are stored under
 `.git/wt/logs/commands.jsonl`; that is local logging, not remote reporting.
 
-The documentation site's Google Analytics loader has been removed. This fork
-replaces Astro's telemetry package with a local no-op implementation, including
-for direct Astro CLI invocations. The npm scripts also set Astro's telemetry
-off switch before the CLI starts. Astro dependency upgrades must review the
-local interface and run the privacy tests. The following separate network
-capabilities remain:
+The documentation site's Google Analytics loader has been removed. The locked
+npm install replaces Astro's telemetry package with a local no-op, including
+for direct Astro CLI invocations from that install. The npm scripts also set
+Astro's telemetry off switch before the CLI starts. Other package managers
+may ignore npm overrides; verify their dependency resolution before invoking
+Astro directly. Astro dependency upgrades must review the local interface and
+run the privacy tests. The following separate network capabilities remain:
 
 - Default-branch discovery may run `git ls-remote` on a cold cache, and
   Git fetch/push and PR/MR checkout communicate with the configured project.
