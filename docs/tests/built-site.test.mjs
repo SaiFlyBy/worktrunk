@@ -660,3 +660,12 @@ test('built pages have unique IDs and valid internal page links', async () => {
     }
   }
 });
+
+
+test('built pages do not load Google Analytics', async () => {
+  for (const file of await htmlFiles()) {
+    const html = await readFile(file, 'utf8');
+    assert.doesNotMatch(html, /(?:googletagmanager\.com\/gtag\/js|google-analytics\.com)/i,
+      `${file} contains a Google Analytics endpoint`);
+  }
+});
