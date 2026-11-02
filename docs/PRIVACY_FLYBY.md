@@ -1,0 +1,30 @@
+# Fork privacy and network inventory
+
+Audited Worktrunk commit `f478bb3885b2c40120d511a0b3dfd1d14ba36bb7`.
+The inspected CLI source and dependency declarations showed no usage-telemetry
+client or analytics reporting module. Local command logs are stored under
+`.git/wt/logs/commands.jsonl`; that is local logging, not remote reporting.
+
+The documentation site's Google Analytics loader has been removed. The
+following separate network capabilities remain:
+
+- Default-branch discovery may run `git ls-remote` on a cold cache, and
+  Git fetch/push and PR/MR checkout communicate with the configured project.
+- List, picker and statusline features may query forge CI, PR and comment
+  data through the relevant forge command. These are project features.
+- `wt config show --full` explicitly checks the latest Worktrunk release
+  at the upstream GitHub API, sending a Worktrunk version user agent.
+- Configured LLM commands receive their prompt and potentially branch diffs;
+  whether they transmit data depends on the command and provider selected.
+- Approved hooks, aliases and execute commands are arbitrary programs. This
+  fork's project hooks include asset/package downloads and a post-merge
+  pull/push command; inspect and approve them according to Worktrunk's normal
+  approval flow.
+- The inherited GitHub Actions workflows use Codecov for test-result and
+  coverage uploads when those workflows run. They are not CLI usage telemetry.
+  Their secrets, runner permissions and third-party disclosures are controlled
+  by the repository's CI configuration.
+
+This is a source audit, not a network sandbox. Git, GitHub clients, hooks,
+configured LLMs, dependency installers and CI providers can communicate when
+their corresponding features run.

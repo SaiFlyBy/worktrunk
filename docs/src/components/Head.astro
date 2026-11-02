@@ -44,17 +44,6 @@ const structuredData = isHome
   installTocFollower();
 </script>
 <script is:inline>
-  if (window.location.hostname === 'worktrunk.dev') {
-    const analytics = document.createElement('script');
-    analytics.async = true;
-    analytics.src = 'https://www.googletagmanager.com/gtag/js?id=G-6YY8BDJ4QH';
-    document.head.append(analytics);
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date());
-    gtag('config', 'G-6YY8BDJ4QH');
-  }
-
   function setDemoTheme(root = document) {
     const theme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
     root.querySelectorAll('figure.demo picture > source').forEach((source) => {
