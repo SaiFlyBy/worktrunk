@@ -2666,7 +2666,7 @@ def cmd_workspace_register(args: argparse.Namespace) -> int:
         if head_sha_val != base_sha_val:
             print(f"worktree must register at exact compiled base before mutation: head={head_sha_val} base={base_sha_val}", file=sys.stderr)
             return 1
-        lines = sorted(line for line in p_status.stdout.splitlines() if "__pycache__" not in line.replace("\\", "/"))
+        lines = sorted(p_status.stdout.splitlines())
         if lines:
             print(f"worktree must be clean at registration: {lines}", file=sys.stderr)
             return 1
@@ -2892,7 +2892,7 @@ def validate_workspace_reconciliation_accounting(root: Path, reconciliation: dic
                 live_b = p_branch.stdout.strip()
                 if live_b != branch.get("branch"):
                     errors.append(f"target branch {repo.get('repository')}:{branch.get('branch')} branch drift: recorded={branch.get('branch')} live={live_b}")
-                lines = sorted(line for line in p_status.stdout.splitlines() if "__pycache__" not in line.replace("\\", "/"))
+                lines = sorted(p_status.stdout.splitlines())
                 live_dirty = bool(lines)
                 live_status = hashlib.sha256(("\n".join(lines) + "\n").encode("utf-8")).hexdigest()
                 if branch.get("dirty") != live_dirty:

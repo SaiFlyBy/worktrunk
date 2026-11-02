@@ -253,15 +253,18 @@ def remote_head(repo: Path, ref: str) -> str | None:
 
 
 def github_origin(origin: str, repository: str) -> bool:
-    if origin.startswith("https://"):
-        host = urlsplit(origin).hostname
-    elif origin.startswith("ssh://"):
-        host = urlsplit(origin).hostname
-    elif ":" in origin and not re.match(r"^[A-Za-z]:", origin):
-        host = origin.split(":", 1)[0].rsplit("@", 1)[-1]
-    else:
+    try:
+        if origin.startswith("https://"):
+            host = urlsplit(origin).hostname
+        elif origin.startswith("ssh://"):
+            host = urlsplit(origin).hostname
+        elif ":" in origin and not re.match(r"^[A-Za-z]:", origin):
+            host = origin.split(":", 1)[0].rsplit("@", 1)[-1]
+        else:
+            return False
+        return bool(host and host.casefold() == "github.com" and origin_matches(origin, repository))
+    except ValueError:
         return False
-    return bool(host and host.casefold() == "github.com" and origin_matches(origin, repository))
 
 
 HANDOFF_MARKER = "\nWORKTRUNK_HANDOFF_V1="
@@ -389,6 +392,19 @@ def handoff(args: argparse.Namespace) -> None:
                      indent=2, ensure_ascii=False))
 
 
+def validate_push_destinations(repo: Path, repository: str) -> None:
+    # Git may use one or more push URLs distinct from the fetch URL; get-url
+    # expands pushInsteadOf/insteadOf using Git's effective configuration.
+    proc = run(["git", "-C", str(repo), "remote", "get-url", "--push", "--all", "origin"])
+    if proc.returncode:
+        raise BridgeError("Cannot resolve every effective origin push destination")
+    destinations = proc.stdout.splitlines()
+    if not destinations or any(not url or url != url.strip() or not github_origin(url, repository)
+                               for url in destinations):
+        # Do not echo URLs: they may contain credentials.
+        raise BridgeError("Every effective origin push destination must identify the compiled GitHub repository")
+
+
 def publish(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
     report = scope_report(root, args.cell)
@@ -418,6 +434,7 @@ def publish(args: argparse.Namespace) -> None:
         raise BridgeError("Workspace custody or HEAD differs from the accepted result")
     if not github_origin(workspace["origin"], repository):
         raise BridgeError("Publishing requires origin to identify the compiled GitHub repository")
+    validate_push_destinations(repo, repository)
     require_success(run(["git", "-C", str(repo), "check-ref-format", "--branch", args.base]), "Base branch validation")
     require_success(run(["git", "-C", str(repo), "merge-base", "--is-ancestor", base_sha, candidate]), "Base ancestry check")
     base_ref, branch_ref = f"refs/heads/{args.base}", f"refs/heads/{workspace['branch']}"
@@ -447,7 +464,13 @@ def publish(args: argparse.Namespace) -> None:
         print(json.dumps({"state": "EXISTING_PR", "pr": pr, "head_sha": candidate}, indent=2))
         return
     if existing is None:
-        push = run(["git", "-C", str(repo), "push", "origin", f"{candidate}:{branch_ref}"])
+        # Re-read immediately before upload. The empty expected value is an
+        # atomic create-only lease: Git refuses the update if the ref exists,
+        # even when a concurrent creator chose an ancestor of the candidate.
+        validate_push_destinations(repo, repository)
+        push = run(["git", "-C", str(repo), "-c", "remote.origin.mirror=false", "push",
+                    "--no-follow-tags", "--recurse-submodules=no",
+                    f"--force-with-lease={branch_ref}:", "origin", f"{candidate}:{branch_ref}"])
         if push.returncode:
             raise BridgeError("Push did not confirm success; reconcile the remote branch before retrying. "
                               + (push.stderr or push.stdout).strip())
