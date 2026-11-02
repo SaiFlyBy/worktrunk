@@ -253,11 +253,21 @@ def remote_head(repo: Path, ref: str) -> str | None:
 
 
 def github_origin(origin: str, repository: str) -> bool:
+    # A GitHub repository identity has exactly two literal path components.
+    # Reject encoded or path-normalizing forms before comparing destinations.
+    if not isinstance(repository, str):
+        return False
+    parts = repository.split("/")
+    if (len(parts) != 2 or any(part in {"", ".", ".."} or
+            any(ch in "\\%?#" or ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in part)
+            for part in parts)):
+        return False
     try:
-        if origin.startswith("https://"):
-            host = urlsplit(origin).hostname
-        elif origin.startswith("ssh://"):
-            host = urlsplit(origin).hostname
+        if origin.startswith(("https://", "ssh://")):
+            parsed = urlsplit(origin)
+            if parsed.query or parsed.fragment:
+                return False
+            host = parsed.hostname
         elif ":" in origin and not re.match(r"^[A-Za-z]:", origin):
             host = origin.split(":", 1)[0].rsplit("@", 1)[-1]
         else:

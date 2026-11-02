@@ -205,6 +205,18 @@ class OriginTests(unittest.TestCase):
         self.assertFalse(bridge.origin_matches("C:/some/local/repo", "owner/repo"))
 
 
+    def test_github_identity_rejects_encoded_and_path_like_repositories(self):
+        self.assertTrue(bridge.github_origin("https://github.com/owner/repo.git", "owner/repo"))
+        self.assertTrue(bridge.github_origin("git@github.com:owner/repo.git", "owner/repo"))
+        self.assertTrue(bridge.github_origin("ssh://git@github.com/owner/repo.git", "owner/repo"))
+        for repository in ("owner/repo/../other", "owner/..", "owner/%2e%2e",
+                           "owner/repo%2fother", "owner/repo\\..\\other", "owner/repo?query"):
+            with self.subTest(repository=repository):
+                self.assertFalse(bridge.github_origin("https://github.com/" + repository + ".git", repository))
+        self.assertFalse(bridge.github_origin("https://github.com/owner/repo.git?redirect=other", "owner/repo"))
+        self.assertFalse(bridge.github_origin("https://github.com/owner/repo.git#fragment", "owner/repo"))
+
+
 class EffectivePushDestinationTests(unittest.TestCase):
     """Exercise Git's actual multiple-pushurl and URL-rewrite resolution."""
 
