@@ -12,6 +12,11 @@ secrets:
   allowed:
   - CODECOV_TOKEN
 workflows:
+  # This upstream bot is optional in the fork; an owner may explicitly enable it.
+  review:
+    jobs:
+      review:
+        if: "vars.TEND_ENABLED != 'false' && vars.TEND_ENABLED == 'true'"
   ci-failures:
     watched_workflows:
     - ci

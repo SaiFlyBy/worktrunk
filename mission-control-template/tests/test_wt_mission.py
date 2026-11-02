@@ -492,7 +492,10 @@ class RealGitPublishTests(unittest.TestCase):
                                  "printf '%s\\n' \"$1\" > \"$WT_MISSION_TEST_TRANSPORT_OUTPUT\"\n"
                                  "exec git receive-pack \"$@\"\n", encoding="utf-8")
             transport.chmod(transport.stat().st_mode | 0o111)
-            git_at("-C", str(repo), "config", "remote.origin.receivepack", f'. "{transport.as_posix()}"')
+            # Git for Windows needs its shell to source the fixture here;
+            # POSIX sh can execute the script directly and preserve argv.
+            receivepack = f'. "{transport.as_posix()}"' if os.name == "nt" else transport.as_posix()
+            git_at("-C", str(repo), "config", "remote.origin.receivepack", receivepack)
             git_at("-C", str(repo), "config", "remote.origin.proxy", "http://127.0.0.1:9")
             git_at("-C", str(repo), "config", "remote.origin.proxyAuthMethod", "basic")
             env.update({"WT_MISSION_TEST_HOOK_OUTPUT": str(hook_output),
@@ -504,6 +507,7 @@ class RealGitPublishTests(unittest.TestCase):
             with patch.dict(os.environ, env, clear=True):
                 rejected = bridge.push_to_verified_destination(repo, good_url, head, "refs/heads/hook-rejected")
             self.assertNotEqual(rejected.returncode, 0)
+            self.assertTrue(hook_output.exists(), f"pre-push hook did not run: {rejected.stderr}")
             self.assertEqual(hook_output.read_text(encoding="utf-8").strip(), "origin")
             self.assertNotEqual(git_at("--git-dir", str(good), "rev-parse", "--verify",
                                       "refs/heads/hook-rejected", check=False).returncode, 0)

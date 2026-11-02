@@ -14,7 +14,7 @@ on:
 
 jobs:
   review:
-    if: vars.TEND_ENABLED != 'false'
+    if: vars.TEND_ENABLED != 'false' && vars.TEND_ENABLED == 'true'
     concurrency:
       group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
       # Preserve pending PR events within GitHub's queue limit: a push must not
@@ -62,7 +62,7 @@ jobs:
           model: gpt-6-sol
           checkout_mode: review
           base_branch: ${{ github.event.pull_request.base.ref }}
-          prompt: |2
+          prompt: |
             $review ${{ github.event.pull_request.number }}
 
       - name: Remove the eyes reaction
