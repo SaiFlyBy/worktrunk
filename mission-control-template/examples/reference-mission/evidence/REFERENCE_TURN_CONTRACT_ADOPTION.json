@@ -1,0 +1,22 @@
+{
+  "schema": "flyby/source-review-turn-contract-adoption/1",
+  "state": "ENFORCED_FOR_NEW_GENERATIONS",
+  "enforced_at": "2026-09-02",
+  "turn_contract_version": "flyby/source-review-turn-contract/2",
+  "turn_contract_schema_ref": "schemas/SOURCE_REVIEW_TURN_CONTRACT_SCHEMA.json",
+  "turn_contract_schema_sha256": "c44d055d99c14cede7a44dc1a39db12bd44f1677a0e9d5784b2b980334be33d3",
+  "turn_chain_index_schema_ref": "schemas/SOURCE_REVIEW_TURN_CHAIN_INDEX_SCHEMA.json",
+  "turn_chain_index_schema_sha256": "ccf0664cb9edd17826d29a237980b56e2b08aa90d5508bfc48c333d632140998",
+  "round_contracts_sha256": "029d4a7a298a184be2d3e0a0980380b3d5044ae61fc53904475123f357300a41",
+  "policy": {
+    "no_retroactive_turn_hash_fabrication": true,
+    "direct_top_level_sessions_only": true,
+    "child_thread_creation_forbidden": true,
+    "delegation_from_review_session_forbidden": true,
+    "turn_envelopes_append_only": true,
+    "prior_hash_required_after_turn_one": true,
+    "phase_instruction_digest_required": true,
+    "source_pinned_locator_hash_required": true,
+    "evidence_hash_required": true
+  }
+}

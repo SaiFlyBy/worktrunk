@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-source-independent-review/16",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "source_id",
+    "reviewer",
+    "reviewer_identity",
+    "extractor_identity",
+    "source_record_sha256",
+    "coverage_sha256",
+    "contributions_sha256",
+    "decision",
+    "inspection_evidence"
+  ],
+  "properties": {
+    "schema": {"const": "flyby/mission-control-source-independent-review/16"},
+    "source_id": {"type": "string", "minLength": 1},
+    "reviewer": {"type": "string", "minLength": 1},
+    "reviewer_identity": {"type": "string", "minLength": 1},
+    "extractor_identity": {"type": "string", "minLength": 1},
+    "source_record_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "coverage_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "contributions_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "decision": {"const": "VERIFIED"},
+    "inspection_evidence": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}

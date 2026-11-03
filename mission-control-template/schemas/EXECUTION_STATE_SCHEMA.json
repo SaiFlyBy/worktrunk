@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-execution-state/16",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "mission_id",
+    "lifecycle",
+    "topology_ref",
+    "cells",
+    "frontier"
+  ],
+  "properties": {
+    "schema": {
+      "const": "flyby/mission-control-execution-state/16"
+    },
+    "mission_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lifecycle": {
+      "enum": [
+        "BOOTSTRAPPED",
+        "BASELINE_READY",
+        "BASELINE_ACCEPTED",
+        "MUTATION_READY",
+        "INTEGRATING",
+        "QUALIFYING",
+        "ACCEPTED",
+        "CLOSED"
+      ]
+    },
+    "topology_ref": {
+      "const": "control/EXECUTION_DAG.json"
+    },
+    "qualification_ref": {
+      "type": "string"
+    },
+    "qualification_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "closure_ref": {
+      "type": "string"
+    },
+    "closure_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "cells": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "state": {
+            "enum": [
+              "PENDING",
+              "COMPILED",
+              "DISPATCHED",
+              "CANDIDATE",
+              "ACCEPTED",
+              "REJECTED",
+              "BLOCKED",
+              "FAILED",
+              "STALE",
+              "SUPERSEDED",
+              "CANCELLED"
+            ]
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "worker_identity": {
+            "type": "string",
+            "minLength": 1
+          },
+          "verifier_identity": {
+            "type": "string",
+            "minLength": 1
+          },
+          "attempt_history": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "attempt",
+                "worker_identity",
+                "verifier_identity",
+                "state",
+                "result_ref",
+                "result_sha256",
+                "context_receipt_ref",
+                "context_receipt_sha256",
+                "adjudication_ref",
+                "adjudication_sha256"
+              ],
+              "properties": {
+                "attempt": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "worker_identity": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "verifier_identity": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "state": {
+                  "enum": [
+                    "CANDIDATE",
+                    "ACCEPTED",
+                    "REJECTED",
+                    "BLOCKED",
+                    "FAILED"
+                  ]
+                },
+                "result_ref": {
+                  "type": "string"
+                },
+                "result_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "context_receipt_ref": {
+                  "type": "string"
+                },
+                "context_receipt_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "adjudication_ref": {
+                  "type": "string"
+                },
+                "adjudication_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            }
+          },
+          "workcell_ref": {
+            "type": "string"
+          },
+          "result_ref": {
+            "type": "string"
+          },
+          "result_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "context_receipt_ref": {
+            "type": "string"
+          },
+          "context_receipt_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "adjudication_ref": {
+            "type": "string"
+          },
+          "adjudication_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "workspace_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._/-]+$"
+          }
+        }
+      }
+    },
+    "frontier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "compiled",
+        "dispatched",
+        "accepted"
+      ],
+      "properties": {
+        "compiled": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "dispatched": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "accepted": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

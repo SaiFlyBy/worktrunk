@@ -1,0 +1,16 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"flyby/mission-control/session-reuse-adjudication-v1.schema.json",
+  "type":"object",
+  "additionalProperties":false,
+  "required":["schema","adjudication_id","source_cell","source_context_receipt_ref","source_target_base","target_cell","target_base","decision","receipt_rewritten","already_covered","ingest_delta","invalidate_from_prior_context","evidence","conditions","authority_law"],
+  "properties":{
+    "schema":{"const":"flyby/mission-control-session-reuse-adjudication/1"},
+    "adjudication_id":{"type":"string"},"source_cell":{"type":"string"},"source_context_receipt_ref":{"type":"string"},"source_target_base":{"type":"string"},"target_cell":{"type":"string"},"target_base":{"type":"string"},"candidate_session":{"type":["string","null"]},
+    "decision":{"enum":["REUSE_ADMISSIBLE_IF_SESSION_STILL_AVAILABLE","REUSE_REJECTED","FRESH_REQUIRED"]},
+    "receipt_rewritten":{"const":false},
+    "already_covered":{"type":"array","items":{"type":"string"}},"ingest_delta":{"type":"array","items":{"type":"string"}},"invalidate_from_prior_context":{"type":"array","items":{"type":"string"}},
+    "evidence":{"type":"array","minItems":1,"items":{"type":"string"}},"conditions":{"type":"array","minItems":1,"items":{"type":"string"}},
+    "authority_law":{"const":"Reuse may extend compiler routing permission for proven context coverage but never rewrites the source receipt, transfers prior cell authority, or skips the new workcell/context contract."}
+  }
+}

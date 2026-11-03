@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-template-lock/16",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "template_schema", "template_source_state", "template_commit", "template_base_commit", "source_template_root", "assets"],
+  "properties": {
+    "schema": {"const": "flyby/mission-control-template-lock/16"},
+    "template_schema": {"const": "flyby/mission-control-template/16"},
+    "template_source_state": {"enum": ["CLEAN_COMMIT", "DIRTY_WORKTREE", "UNVERSIONED"]},
+    "template_commit": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+    "template_base_commit": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+    "source_template_root": {"const": "mission-control-template"},
+    "assets": {
+      "type": "object",
+      "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    }
+  }
+}

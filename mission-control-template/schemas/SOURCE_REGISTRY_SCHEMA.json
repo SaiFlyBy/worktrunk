@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-source-registry/16",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "mission_id",
+    "sources"
+  ],
+  "properties": {
+    "schema": {
+      "const": "flyby/mission-control-source-registry/16"
+    },
+    "mission_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "locator",
+          "role"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "kind": {
+            "enum": [
+              "OWNER_INTENT",
+              "PREVIOUS_MISSION",
+              "REPOSITORY",
+              "RESEARCH",
+              "DOCUMENT",
+              "AUDIT"
+            ]
+          },
+          "locator": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1
+          },
+          "pin": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "admission": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "license": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "disposition": {
+            "enum": [
+              "SYNTHESIS_REQUIRED",
+              "ADJUDICATED_SYNTHESIS",
+              "REFERENCE_ONLY",
+              "REJECTED",
+              "AUTHORITY_ONLY"
+            ]
+          },
+          "inspection_scope": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "copyright": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "usage_mode",
+              "rights_status",
+              "rights_basis",
+              "code_copy_allowed",
+              "text_copy_allowed",
+              "structure_reuse_allowed",
+              "obligations",
+              "evidence_ref",
+              "notes"
+            ],
+            "properties": {
+              "usage_mode": {
+                "enum": [
+                  "OWNER_AUTHORIZED_REUSE",
+                  "LICENSE_PERMITTED_REUSE",
+                  "CLEAN_ROOM_BEHAVIORAL_SYNTHESIS",
+                  "REFERENCE_ONLY",
+                  "AUTHORITY_ONLY",
+                  "AUDIT_EVIDENCE"
+                ]
+              },
+              "code_copy_allowed": {
+                "type": "boolean"
+              },
+              "text_copy_allowed": {
+                "type": "boolean"
+              },
+              "notes": {
+                "type": "string",
+                "minLength": 1
+              },
+              "rights_status": {
+                "enum": [
+                  "VERIFIED",
+                  "PENDING",
+                  "NOT_APPLICABLE"
+                ]
+              },
+              "rights_basis": {
+                "type": "string",
+                "minLength": 1
+              },
+              "structure_reuse_allowed": {
+                "type": "boolean"
+              },
+              "obligations": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "evidence_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

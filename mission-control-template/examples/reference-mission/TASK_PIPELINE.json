@@ -1,0 +1,43 @@
+{
+  "contract_version": "flyby/task-pipeline/1",
+  "pipeline_id": "reference-source-review",
+  "overseer_role": "coordinator",
+  "topology": "PARALLEL_ITEMS_SERIAL_PHASES",
+  "scheduler": {
+    "initial_population": "PHASE_0_ONLY",
+    "successor_materialization": "APPEND_ON_PREDECESSOR_TERMINAL",
+    "assignment_order": "EARLIEST_ELIGIBLE_IDLE",
+    "completion_handoff": "AUTO_ASSIGN_NEXT_TO_COMPLETING_SEAT",
+    "mailbox_delivery": "DURABLE_COLLAB_INBOX"
+  },
+  "phases": [
+    {
+      "id": "A",
+      "instruction": "Build the source-local package for {item_summary}.",
+      "required_role": null,
+      "different_from_previous": false,
+      "distinct_lineage_seat": false
+    },
+    {
+      "id": "B",
+      "instruction": "Run a substantive independent engineering audit of {item_summary}.",
+      "required_role": null,
+      "different_from_previous": true,
+      "distinct_lineage_seat": false
+    },
+    {
+      "id": "C",
+      "instruction": "Perform the mission-defined final independent disposition for {item_summary}.",
+      "required_role": null,
+      "different_from_previous": true,
+      "distinct_lineage_seat": true
+    }
+  ],
+  "items": [
+    {
+      "item_id": "source-001",
+      "summary": "Reference source package",
+      "resource": "source:source-001"
+    }
+  ]
+}

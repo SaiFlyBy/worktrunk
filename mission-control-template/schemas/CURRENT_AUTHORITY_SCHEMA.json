@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-authority/16",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "mission_id",
+    "template_schema",
+    "mission_ref",
+    "template_lock_ref",
+    "execution_dag",
+    "execution_state",
+    "compiler_control",
+    "session_residency",
+    "workspace_ledger",
+    "provenance_synthesis",
+    "target_mutation_corpus",
+    "source_registry",
+    "target_baselines",
+    "status"
+  ],
+  "properties": {
+    "schema": {
+      "const": "flyby/mission-control-authority/16"
+    },
+    "mission_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "template_schema": {
+      "const": "flyby/mission-control-template/16"
+    },
+    "mission_ref": {
+      "const": "MISSION.json"
+    },
+    "template_lock_ref": {
+      "const": "TEMPLATE_LOCK.json"
+    },
+    "execution_dag": {
+      "const": "control/EXECUTION_DAG.json"
+    },
+    "execution_state": {
+      "const": "control/EXECUTION_STATE.json"
+    },
+    "compiler_control": {
+      "const": "control/COMPILER_CONTROL.json"
+    },
+    "session_residency": {
+      "const": "control/SESSION_RESIDENCY.json"
+    },
+    "target_mutation_corpus": {
+      "const": "corpus/TARGET_MUTATIONS.json"
+    },
+    "source_registry": {
+      "const": "corpus/SOURCES.json"
+    },
+    "target_baselines": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{40}$"
+      }
+    },
+    "status": {
+      "enum": [
+        "BOOTSTRAPPED",
+        "BOOTSTRAP_INVALID"
+      ]
+    },
+    "provenance_synthesis": {
+      "const": "corpus/PROVENANCE_SYNTHESIS.json"
+    },
+    "workspace_ledger": {
+      "const": "control/WORKSPACE_LEDGER.json"
+    }
+  }
+}

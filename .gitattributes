@@ -42,3 +42,6 @@ plugins/worktrunk/hooks/*.cmd text eol=crlf
 # test. The rest of `_git/` (HEAD, config, refs) is text worth reading.
 tests/fixtures/*/_git/objects/** binary
 tests/fixtures/*/_git/index binary
+
+# Mission Control reference evidence is hash-bound to LF bytes.
+mission-control-template/examples/reference-mission/** text eol=lf

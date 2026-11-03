@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control/session-residency-registry-v1.schema.json",
+  "title": "Mission Control Session Residency Registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "frontier_id", "records"],
+  "properties": {
+    "schema": {"const": "flyby/mission-control-session-residency-registry/1"},
+    "frontier_id": {"type": "string", "minLength": 1},
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["binding_id", "worker_identity", "provider", "native_session_state", "origin_cell", "origin_attempt", "target_repository", "target_base", "context_receipt_ref", "continuation_state", "last_observed_state"],
+        "properties": {
+          "binding_id": {"type": "string", "minLength": 1},
+          "worker_identity": {"type": "string", "minLength": 1},
+          "provider": {"type": "string", "minLength": 1},
+          "native_session_id": {"type": ["string", "null"]},
+          "native_session_state": {"enum": ["IDENTIFIED", "IDENTITY_UNAVAILABLE", "CLOSED", "LOST", "UNKNOWN"]},
+          "origin_cell": {"type": "string", "minLength": 1},
+          "origin_attempt": {"type": "string", "minLength": 1},
+          "target_repository": {"type": "string", "minLength": 1},
+          "target_base": {"type": "string", "minLength": 7},
+          "context_receipt_ref": {"type": "string", "minLength": 1},
+          "context_receipt_hash": {"type": ["string", "null"]},
+          "continuation_state": {"enum": ["REUSABLE_CANDIDATE", "NOT_REUSABLE", "UNKNOWN"]},
+          "provider_continuation_supported": {"type": ["boolean", "null"]},
+          "compaction_state": {"enum": ["NONE_RECORDED", "COMPACTED", "RESTARTED", "UNKNOWN"]},
+          "last_bound_cell": {"type": ["string", "null"]},
+          "remaining_context_budget_estimate": {"type": ["integer", "null"], "minimum": 0},
+          "last_observed_state": {"enum": ["HOT", "AVAILABLE", "IDLE", "BUSY", "CLOSED", "LOST", "UNKNOWN"]},
+          "non_reuse_reason": {"type": ["string", "null"]}
+        }
+      }
+    }
+  }
+}

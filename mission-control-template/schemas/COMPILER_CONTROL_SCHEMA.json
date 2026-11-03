@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-compiler-control/16",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "mission_id", "dispatch_law", "capacity_authority", "mutation_gate", "worker_report_is_candidate_evidence", "independent_adjudication_required", "preassigned_custody_required", "aggregate_normalization", "compiler_parity", "context_receipt_required", "session_residency_required", "parallelism", "commands"],
+  "properties": {
+    "schema": {"const": "flyby/mission-control-compiler-control/16"},
+    "mission_id": {"type": "string", "minLength": 1},
+    "dispatch_law": {"const": "ready -> compiled -> dependency-safe -> conflict-safe -> admitted"},
+    "capacity_authority": {"const": "EXTERNAL_ORCHESTRATOR"},
+    "mutation_gate": {"const": "BASELINE_ACCEPTED"},
+    "worker_report_is_candidate_evidence": {"const": true},
+    "independent_adjudication_required": {"const": true},
+    "preassigned_custody_required": {"const": true},
+    "aggregate_normalization": {"const": "FORBIDDEN"},
+    "compiler_parity": {"const": "PURE_PACKET_RECONSTRUCTION"},
+    "context_receipt_required": {"const": true},
+    "session_residency_required": {"const": true},
+    "parallelism": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conflict_class_required", "resource_claims_required"],
+      "properties": {
+        "conflict_class_required": {"const": true},
+        "resource_claims_required": {"const": true}
+      }
+    },
+    "commands": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}

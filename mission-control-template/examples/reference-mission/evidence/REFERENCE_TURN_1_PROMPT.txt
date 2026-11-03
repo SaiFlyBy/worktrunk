@@ -1,0 +1,4 @@
+Source: repo-reference-source
+Thread: codex://threads/reference-source-review-generation-1
+Phase contract: Partition the full source into critical subsystems/sections; inspect broadly; enumerate capabilities, exact evidence locators, target overlap/gaps, rights implications, and explicitly record uninspected critical partitions. Do not claim convergence.
+Inspect architecture first and preserve exact source-local evidence.

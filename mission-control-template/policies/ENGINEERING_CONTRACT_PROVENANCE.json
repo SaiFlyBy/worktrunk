@@ -1,0 +1,54 @@
+{
+  "schema": "flyby/mission-control-engineering-contract-provenance/1",
+  "observed_at": "2026-09-17",
+  "policy": "External sources inform independently expressed Mission Control mechanisms. No source code or distinctive prose from these sources is incorporated by this hardening unless a future change records the exact reused material and satisfies its license obligations.",
+  "sources": [
+    {
+      "id": "PROV-SPEC-KIT",
+      "repository": "github/spec-kit",
+      "revision": "d743a695e46d6decfeb48fb2a641913ff5ab9ac5",
+      "license": "MIT",
+      "license_blob_sha": "28a50fa22639e32febe14e4ffc7a732b0ba8c90a",
+      "usage_mode": "LICENSE_PERMITTED_REUSE",
+      "direct_code_reuse": false,
+      "direct_text_reuse": false,
+      "contribution": [
+        "specification-driven development as an explicit stage before implementation",
+        "separation of specification, planning, task decomposition, implementation and convergence",
+        "defect workflow that begins from observed/reproduced behavior rather than immediate mutation"
+      ],
+      "mission_control_derivation": "Mission Control independently defines executable specification contracts, bidirectional traceability, amendment invalidation and convergence gates suitable for multi-cell engineering missions."
+    },
+    {
+      "id": "PROV-TREE-SITTER",
+      "repository": "tree-sitter/tree-sitter",
+      "revision": "1b8407d1e718f2a26e2886c03cc55622d8d1d7bd",
+      "license": "MIT",
+      "license_blob_sha": "971b81f9a86c0c91827e225aeac9159a13bfd3c1",
+      "usage_mode": "LICENSE_PERMITTED_REUSE",
+      "direct_code_reuse": false,
+      "direct_text_reuse": false,
+      "contribution": [
+        "incremental concrete-syntax parsing as a structural code-intelligence mechanism",
+        "changed-range/stable-tree analysis as a preferable basis for structure-aware mutation",
+        "multi-language parser infrastructure as one admissible structural engine"
+      ],
+      "mission_control_derivation": "Mission Control does not mandate Tree-sitter itself. It requires structural-first mutation when syntax/semantic structure matters and permits Tree-sitter, compiler ASTs, language servers, schema-aware rewriters, queryable IRs or generator owners according to the target."
+    },
+    {
+      "id": "PROV-ACTIONLINT",
+      "repository": "rhysd/actionlint",
+      "revision": "914e7df21a07ef503a81201c76d2b11c789d3fca",
+      "license": "MIT",
+      "license_blob_sha": "69292aedc9113498e83d72e48d38894f9a2a2eb6",
+      "usage_mode": "TOOL_EXECUTION_ONLY",
+      "direct_code_reuse": false,
+      "direct_text_reuse": false,
+      "contribution": [
+        "semantic validation of GitHub Actions workflow syntax, expressions, and context availability",
+        "independent workflow-definition validation before candidate jobs are trusted as executable evidence"
+      ],
+      "mission_control_derivation": "Mission Control requires CI definitions to be validated from a separate stable gate because a malformed candidate workflow can fail before it creates jobs. The repository executes a pinned actionlint release with a verified archive checksum; actionlint is evidence tooling, not Mission Control runtime authority."
+    }
+  ]
+}

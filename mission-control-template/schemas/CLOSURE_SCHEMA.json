@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-closure/16",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "mission_id",
+    "terminal_state",
+    "qualification_ref",
+    "qualification_sha256",
+    "workspace_reconciliation_sha256",
+    "workspace_reconciliation_ref",
+    "target_outcomes",
+    "requirement_accounting",
+    "verification_accounting",
+    "unresolved_defects",
+    "explicit_limitations"
+  ],
+  "properties": {
+    "schema": {
+      "const": "flyby/mission-control-closure/16"
+    },
+    "mission_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "terminal_state": {
+      "const": "CLOSED"
+    },
+    "qualification_ref": {
+      "const": "handoff/QUALIFICATION.json"
+    },
+    "qualification_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "target_outcomes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "repository",
+          "baseline_sha",
+          "accepted_head_sha"
+        ],
+        "properties": {
+          "repository": {
+            "type": "string",
+            "minLength": 1
+          },
+          "baseline_sha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "accepted_head_sha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          }
+        }
+      }
+    },
+    "requirement_accounting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepted",
+        "waived"
+      ],
+      "properties": {
+        "accepted": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "waived": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "requirement_id",
+              "reason",
+              "authority"
+            ],
+            "properties": {
+              "requirement_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              },
+              "authority": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "verification_accounting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run",
+        "waived",
+        "not_run"
+      ],
+      "properties": {
+        "run": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "waived": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "verification",
+              "reason",
+              "authority"
+            ],
+            "properties": {
+              "verification": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              },
+              "authority": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "not_run": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "unresolved_defects": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "explicit_limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "workspace_reconciliation_ref": {
+      "const": "handoff/WORKSPACE_RECONCILIATION.json"
+    },
+    "workspace_reconciliation_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

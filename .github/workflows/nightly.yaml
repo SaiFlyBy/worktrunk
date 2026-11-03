@@ -56,6 +56,7 @@ env:
 
 jobs:
   gate:
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id) }}
     # Decides whether to run on PR events. Non-PR events (cron,
     # workflow_dispatch, push) pass through unconditionally. PR events
     # run when either the `nightly` label is attached OR the diff touches
@@ -155,7 +156,7 @@ jobs:
     # `--unreferenced reject` orphan check, which is intrinsically full-suite.
     # It lives in `nightly`, NOT on push-to-main, on purpose: a failure here
     # means affected missed something, and that must not redden main — nightly
-    # failures are non-blocking and Tend-fixable. Complements feature-powerset
+    # failures are non-blocking and maintainer-investigated. Complements feature-powerset
     # (Linux, feature combos) and release-target (cross triples) by covering
     # the standard 3-OS matrix that neither runs. A fourth row runs the same
     # job with the minimum supported Git. At the affected-only flip, ci.yaml's

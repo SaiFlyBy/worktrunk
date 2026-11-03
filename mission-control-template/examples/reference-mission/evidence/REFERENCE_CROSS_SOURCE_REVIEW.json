@@ -1,0 +1,7 @@
+{
+  "schema": "flyby/reference-cross-source-review/1",
+  "mission_id": "REFERENCE-MCV16",
+  "reviewer": "reference-golden-cross-source-verifier",
+  "verdict": "VERIFIED",
+  "scope": "Exact final reference mechanism graph, intercept matrix and combination-hypothesis set."
+}

@@ -1,0 +1,82 @@
+{
+  "schema": "flyby/source-review-checkpoint/1",
+  "checkpoint_id": "chk-reference-source-t1-01",
+  "source_id": "repo-reference-source",
+  "source_ref": "example/reference@0123456789abcdef0123456789abcdef01234567",
+  "thread": "codex://threads/reference-source-review-generation-1",
+  "turn_number": 1,
+  "checkpoint_sequence": 1,
+  "authority_status": "NON_AUTHORITATIVE_SCRATCH",
+  "convergence_status": "IN_PROGRESS",
+  "license_and_rights_evidence": {
+    "license_locator": "LICENSE.txt#L1-L25",
+    "rights_state": "OWNER_AUTHORIZED_REUSE",
+    "declared_permissions": [
+      "commercial_use",
+      "modification",
+      "distribution"
+    ],
+    "third_party_notices_required": false,
+    "notes": "Verified permissive license in root"
+  },
+  "coverage_cursor": {
+    "inspected_partition": "core_engine",
+    "inspected_paths": [
+      "src/engine/core.py",
+      "src/engine/types.py"
+    ],
+    "inspected_commit_or_version": "0123456789abcdef0123456789abcdef01234567",
+    "inspected_range_or_locator": "src/engine/core.py#L1-L120",
+    "completed_partitions": [
+      "core_engine"
+    ],
+    "remaining_partitions": [
+      "dispatcher",
+      "storage_layer"
+    ]
+  },
+  "mechanism_candidates": [
+    {
+      "candidate_id": "cand-001",
+      "name": "LocklessRingBuffer",
+      "evidence_locator": "src/engine/core.py#L45-L95",
+      "target_applicability": "High-throughput telemetry ingestion queue",
+      "summary": "Bounded atomic ring buffer with memory fence semantics"
+    }
+  ],
+  "mc_reinterpretation_hypotheses": [
+    {
+      "hypothesis_id": "hyp-001",
+      "target_mechanism_name": "AtomicQueueBuffer",
+      "independent_design_notes": "Implement clean-room Python/C-extension atomic buffer matching target requirements without copying source internals",
+      "clean_room_justification": "Independently derived from public lock-free queue specifications"
+    }
+  ],
+  "rejected_or_non_adoptable": [
+    {
+      "locator": "src/engine/legacy_io.py#L1-L200",
+      "name": "SyncFileLogger",
+      "rejection_rationale": "Blocking synchronous disk I/O conflicts with target asynchronous architecture"
+    }
+  ],
+  "confidence_and_open_questions": {
+    "confidence_rating": "HIGH",
+    "open_questions": [
+      "Verify whether dispatcher partition has hidden threading dependencies"
+    ],
+    "uninspected_gaps": [
+      "dispatcher/queue.py",
+      "storage/backend.py"
+    ]
+  },
+  "unresolved_rights_issues": [],
+  "next_read_cursor": {
+    "target_next_partition": "dispatcher",
+    "target_next_paths": [
+      "src/dispatcher/router.py",
+      "src/dispatcher/queue.py"
+    ],
+    "target_next_range": "src/dispatcher/router.py#L1-L150",
+    "stop_condition": "Complete dispatcher tranche and checkpoint before inspecting storage layer"
+  }
+}

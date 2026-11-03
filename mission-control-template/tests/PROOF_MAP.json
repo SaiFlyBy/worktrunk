@@ -1,0 +1,58 @@
+{
+  "schema": "flyby/mission-control-proof-map/1",
+  "features": {
+    "template_contracts": {
+      "unit_regression": ["tests/test_template_coherence.py", "tests/test_engineering_contract_index.py", "tests/test_proof_runner_contract.py", "tests/test_reference_fixture_byte_custody.py"],
+      "e2e": ["tools/test_template_v16.py"]
+    },
+    "worktrunk_scope_publication": {
+      "e2e": ["tests/test_wt_mission.py"]
+    },
+    "lifecycle_and_retry": {
+      "unit_regression": ["tests/test_test_classification.py"],
+      "e2e": ["tests/test_runtime_state_machine.py", "tools/test_template_v16.py"]
+    },
+    "scope_completeness_and_specification": {
+      "unit_regression": ["tests/test_engineering_contracts.py", "tests/test_engineering_contract_index.py"]
+    },
+    "dynamic_source_collection_intake": {
+      "unit_regression": ["tests/test_source_collection_contract.py", "tests/test_engineering_contract_index.py"]
+    },
+    "source_surface_evidence_custody": {
+      "unit_regression": ["tests/test_source_surface_evidence.py", "tests/test_engineering_contract_index.py"]
+    },
+    "source_review_turn_chain_custody": {
+      "unit_regression": ["tests/test_source_review_turn_chain.py", "tests/test_reference_fixture_byte_custody.py"]
+    },
+    "source_exhaustion_and_engineering_ledger": {
+      "unit_regression": ["tests/test_engineering_contracts.py", "tests/test_engineering_contract_index.py", "tests/test_engineering_rights_contract.py"]
+    },
+    "structural_mutation_contract": {
+      "unit_regression": ["tests/test_engineering_contracts.py", "tests/test_engineering_contract_index.py", "tests/test_mutation_plan_traceability.py"]
+    },
+    "high_assurance_aggregate_gate": {
+      "unit_regression": ["tests/test_high_assurance_gate.py", "tests/test_engineering_contract_index.py"]
+    },
+    "ci_cd_qualification_contract": {
+      "unit_regression": ["tests/test_engineering_contracts.py", "tests/test_engineering_contract_index.py", "tests/test_ci_waiver_contract.py", "tests/test_proof_runner_contract.py"]
+    },
+    "parallel_admission": {
+      "e2e": ["tests/test_runtime_state_machine.py", "tools/test_template_v16.py"],
+      "performance_load": ["tests/test_performance_characterization.py"]
+    },
+    "evidence_and_context_integrity": {
+      "e2e": ["tests/test_runtime_state_machine.py", "tools/test_template_v16.py"]
+    },
+    "independent_adjudication": {
+      "unit_regression": ["tests/test_template_coherence.py"],
+      "e2e": ["tests/test_runtime_state_machine.py", "tools/test_template_v16.py"]
+    },
+    "scaling_and_resource_lifecycle": {
+      "performance_load": ["tests/test_performance_characterization.py"]
+    },
+    "legacy_mcv6_compatibility": {
+      "unit_regression": ["tests/test_legacy_fixture_byte_custody.py"],
+      "environment_integration": ["tests/test_mission_control.py"]
+    }
+  }
+}

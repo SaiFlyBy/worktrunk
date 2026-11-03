@@ -1,0 +1,84 @@
+{
+  "schema": "flyby/mission-control-frontier/16",
+  "frontier_id": "F100",
+  "cells": [
+    {
+      "cell_id": "M000",
+      "kind": "MUTATION",
+      "dependencies": ["G000"],
+      "objective": "Exercise the canonical mutation lifecycle without changing an external repository.",
+      "acceptance": [
+        "typed mutation result is accepted",
+        "both reference mutation cells settle accepted evidence"
+      ],
+      "status": "PENDING",
+      "conflict_class": "write:reference",
+      "resource_claims": ["reference-target"],
+      "requirement_ids": ["REF-001"],
+      "target": {
+        "repository": "example/target",
+        "base_sha": "0123456789abcdef0123456789abcdef01234567",
+        "owned_paths": ["reference-only"]
+      },
+      "positive_verification": ["reference positive verification"],
+      "negative_verification": ["reference negative verification"],
+      "rollback": "Discard the reference candidate.",
+      "result_schema": "contracts/schemas/RESULT_SCHEMA.json"
+    },
+    {
+      "cell_id": "M001",
+      "kind": "MUTATION",
+      "dependencies": ["G000"],
+      "objective": "Prove conflict-safe admission serializes a second mutation claiming the same target resource.",
+      "acceptance": [
+        "second mutation is admitted only after the conflicting active mutation settles",
+        "integration and qualification preserve requirement lineage"
+      ],
+      "status": "PENDING",
+      "conflict_class": "write:reference",
+      "resource_claims": ["reference-target"],
+      "requirement_ids": ["REF-001"],
+      "target": {
+        "repository": "example/target",
+        "base_sha": "0123456789abcdef0123456789abcdef01234567",
+        "owned_paths": ["reference-only"]
+      },
+      "positive_verification": ["reference conflict serialization verification"],
+      "negative_verification": ["concurrent admission with M000 must fail"],
+      "rollback": "Discard the reference candidate.",
+      "result_schema": "contracts/schemas/RESULT_SCHEMA.json"
+    },
+    {
+      "cell_id": "G100",
+      "kind": "BARRIER",
+      "dependencies": ["M000", "M001"],
+      "objective": "Freeze the accepted mutation frontier before integration begins.",
+      "acceptance": ["all dependencies are ACCEPTED"],
+      "status": "PENDING",
+      "conflict_class": "gate:integration",
+      "resource_claims": []
+    },
+    {
+      "cell_id": "I000",
+      "kind": "INTEGRATION",
+      "dependencies": ["G100"],
+      "objective": "Exercise typed integration work after the mutation frontier is frozen.",
+      "acceptance": ["integration result is accepted with typed evidence"],
+      "status": "PENDING",
+      "conflict_class": "integration:reference",
+      "resource_claims": ["reference-target"],
+      "result_schema": "contracts/schemas/RESULT_SCHEMA.json"
+    },
+    {
+      "cell_id": "Q000",
+      "kind": "QUALIFICATION",
+      "dependencies": ["I000"],
+      "objective": "Exercise typed qualification work before mission acceptance.",
+      "acceptance": ["qualification workcell result is accepted with typed evidence"],
+      "status": "PENDING",
+      "conflict_class": "qualification:reference",
+      "resource_claims": [],
+      "result_schema": "contracts/schemas/RESULT_SCHEMA.json"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 ---
 name: release
-description: Worktrunk release workflow. Use when user asks to "do a release", "release a new version", "cut a release", or wants to publish a new version to crates.io and GitHub.
+description: Worktrunk release workflow for building a fork release and publishing it on GitHub.
 metadata:
   internal: true
 ---
@@ -41,17 +41,13 @@ metadata:
     ```bash
     git reset --soft HEAD~1 && git add -A && git commit -m "Release vX.Y.Z"
     ```
-11. **Merge to main**: complete the documentation review on the final candidate, then push the release branch, open a PR, wait for CI, and merge it. Keep the worktree — the remaining steps run from it. Then move the branch onto the merged tip:
-    ```bash
-    git fetch origin && git reset --keep origin/main
-    ```
-    The PR squash-merges, so the branch is no longer an ancestor of `main` and step 1's `--ff-only` can't advance it; `--keep` moves it across and still fails if anything is uncommitted. `main` can advance during the CI wait; step 12 catches anything that lands before the tag.
-12. **Verify the changelog covers `main`, then tag and push**: the tag decides what ships — `release.yaml` builds the binaries and the GitHub release notes from the tree at the tag, so everything reachable from it is in the release. The merge squashes onto whatever `main` tip exists at merge time, so a commit that lands during the PR's CI wait is already an ancestor of the release commit and ships whether or not the changelog mentions it (the easy miss is a follow-up that reworks a feature this release already documents). List what reached `main` since the cut-from tip (step 1):
+11. **Merge to main**: Complete the documentation review on the final candidate, push the release branch, open a PR, wait for CI, and merge it using the accepted PR method. Keep the worktree. Verify the accepted main commit and its ancestry before updating the release branch; use a fast-forward when possible and preserve local work. Main can advance during the CI wait, so step 12 reconciles any drift before tagging.
+12. **Verify the changelog covers `main`, then tag and push**: the tag decides what ships — `release.yaml` builds the binaries and the GitHub release notes from the tree at the tag, so everything reachable from it is in the release. A commit that lands during the PR's CI wait may be an ancestor of the release commit and ship whether or not the changelog mentions it (the easy miss is a follow-up that reworks a feature this release already documents). List what reached `main` since the cut-from tip (step 1):
     ```bash
     git fetch origin
     git log --oneline <cut-from-commit>..origin/main
     ```
-    Clean means the changelog at `origin/main` documents every user-facing commit listed. With no drift the list is one line, the `Release vX.Y.Z (#NNNN)` squash commit. Review anything else that drifted in during the window and fold what's user-facing into the changelog with a follow-up squash PR, then re-fetch and re-run. The list only grows across passes — the drifted commits stay, joined by the follow-up's own squash commit — so each pass re-checks coverage over a longer list.
+    Clean means the changelog at `origin/main` documents every user-facing commit listed. Identify the release PR commits in the list. Review anything else that drifted in during the window and fold user-facing changes into the changelog with a follow-up PR, then re-fetch and re-run. Each pass re-checks coverage for everything now reachable from main.
 
     Extend the documentation review to any changes since its reviewed SHA, including corrections and commits that arrived during CI. Record the final reviewed SHA and resolve findings before tagging.
 
@@ -64,7 +60,7 @@ metadata:
     gh run list --workflow=release.yaml --event=push --branch=vX.Y.Z --limit 1 --json databaseId --jq '.[0].databaseId'
     ```
 
-`release.yaml` builds binaries and publishes to crates.io, Homebrew, and winget automatically.
+`release.yaml` builds binaries and publishes a GitHub release. External package-registry publication is not configured for the fork. The binary archives and installers do not currently include the Mission Control template; use a matching source checkout for that integration.
 
 ## Data-Loss Surface Review
 

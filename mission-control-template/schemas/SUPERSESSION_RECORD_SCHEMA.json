@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-supersession-record/16",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "superseded_ref",
+    "superseded_sha256",
+    "successor_ref",
+    "successor_sha256",
+    "rationale"
+  ],
+  "properties": {
+    "schema": {"const": "flyby/mission-control-supersession-record/16"},
+    "superseded_ref": {"type": "string", "minLength": 1},
+    "superseded_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "successor_ref": {"type": "string", "minLength": 1},
+    "successor_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "rationale": {"type": "string", "minLength": 1}
+  }
+}

@@ -1,0 +1,91 @@
+name: mission-control bridge
+
+on:
+  pull_request:
+    paths:
+      - 'mission-control-template/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'build.rs'
+      - '.cargo/**'
+      - '.github/workflows/mission-control-bridge.yaml'
+      - '.gitattributes'
+  push:
+    branches: [main]
+    paths:
+      - 'mission-control-template/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'build.rs'
+      - '.cargo/**'
+      - '.github/workflows/mission-control-bridge.yaml'
+      - '.gitattributes'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  bridge:
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_INCREMENTAL: '0'
+      RUSTFLAGS: -C debuginfo=0
+    steps:
+      - name: Check out candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Build this fork's Worktrunk binary
+        run: cargo build --locked --bin wt
+      - name: Check bridge and v16 lifecycle
+        shell: bash
+        run: |
+          python - <<'PYTHON'
+          import os, pathlib, subprocess, sys
+          root = pathlib.Path(os.environ['GITHUB_WORKSPACE'])
+          template = root / 'mission-control-template'
+          env = os.environ.copy()
+          env.update({'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
+                      'GIT_CONFIG_SYSTEM': os.devnull, 'GIT_TERMINAL_PROMPT': '0',
+                      'PYTHONDONTWRITEBYTECODE': '1'})
+          env.pop('MC_SOURCE_PROOF_REPO', None)
+          commands = [
+              ['tests/test_test_classification.py'],
+              ['tests/test_template_coherence.py'],
+              ['tests/test_reference_fixture_byte_custody.py'],
+              ['tests/test_proof_runner_contract.py',
+               'ProofRunnerContractSuite.test_01_required_skip_is_blocking',
+               'ProofRunnerContractSuite.test_02_clean_gate_covers_entire_repository',
+               'ProofRunnerContractSuite.test_03_command_timeout_is_terminal_and_hashed',
+               'ProofRunnerContractSuite.test_06_fork_bridge_workflow_tests_current_source'],
+              ['tests/test_runtime_state_machine.py'],
+              ['tests/test_wt_mission.py'],
+          ]
+          for command in commands:
+              subprocess.run([sys.executable, str(template / command[0]), *command[1:]],
+                             cwd=root, env=env, check=True)
+          binary = root / 'target' / 'debug' / ('wt.exe' if os.name == 'nt' else 'wt')
+          env['WORKTRUNK_MC_TEST_WT'] = str(binary)
+          golden = [sys.executable, str(template / 'tools' / 'test_template_v16.py')]
+          subprocess.run(golden, cwd=root, env=env, check=True)
+          env['WORKTRUNK_MC_TEST_HANDOFF'] = '1'
+          subprocess.run(golden, cwd=root, env=env, check=True)
+          PYTHON

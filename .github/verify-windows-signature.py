@@ -4,9 +4,9 @@ The signing chain breaks silently — v0.69.0 and v0.69.1 both shipped unsigned
 under a green run, two different ways — so this reads the zip itself and
 nothing but the published bytes can satisfy it.
 
-It checks that a certificate is present, not that it chains to a trusted root:
-SignPath is on a self-signed test certificate pending the project's OSS
-application, which is also why the caller runs this with continue-on-error.
+It checks that a certificate is present, not that it chains to a trusted root.
+The fork does not currently sign Windows binaries; run this when evaluating a
+separately configured signing setup.
 
 Usage: python .github/verify-windows-signature.py <zip>
 """

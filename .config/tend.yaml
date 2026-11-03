@@ -1,29 +1,18 @@
+# Tend 0.3.23 normal regeneration produces no agent workflows in this fork.
+# Review later generator versions before using them.
+# An explicit generator install-test option is separate and must not be used
+# to restore automation without a deliberate review.
 bot_name: worktrunk-bot
 harness: codex
-model: gpt-6-sol
 codex:
   auth_refresh: false
-setup:
-- uses: ./.github/actions/tend-setup
-# Verify the toolchain installed above before the agent starts. Four tools
-# support the pre-merge gate; nix supports the weekly flake.lock refresh.
-- run: 'for t in cargo-insta cargo-nextest pre-commit nu nix; do command -v "$t" >/dev/null || { echo "::error::tend setup is missing $t; see Sandbox toolchain in .github/AGENTS.md"; exit 1; }; done'
-secrets:
-  allowed:
-  - CODECOV_TOKEN
 workflows:
-  ci-failures:
-    watched_workflows:
-    - ci
-    - coverage
-    # `affected-tests` is continue-on-error, so watching this workflow only
-    # signs Tend up for `collect-affected` failures — a stale DB degrades
-    # selection on every later PR, so it is worth fixing.
-    - affected
-    - publish-docs
-    # nightly hosts `full-tests` (the cargo-affected safety net), so a red
-    # nightly is actionable: Tend triages it instead of leaving main's gaps
-    # uncaught. Tend watches at the workflow level, so this also signs Tend up
-    # for the other nightly jobs (minimal-versions, nix-flake, udeps) — an
-    # accepted trade for keeping the safety net green.
-    - nightly
+  review: {enabled: false}
+  mention: {enabled: false}
+  mention-relay: {enabled: false}
+  triage: {enabled: false}
+  nightly: {enabled: false}
+  weekly: {enabled: false}
+  notifications: {enabled: false}
+  review-runs: {enabled: false}
+  ci-failures: {enabled: false}

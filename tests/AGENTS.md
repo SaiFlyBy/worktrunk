@@ -16,18 +16,7 @@ Run task profile-tests. Compare user and system CPU time when sibling worktrees 
 
 ## Coverage Investigation
 
-Run task coverage and inspect target/llvm-cov/html/index.html or cargo llvm-cov report --show-missing-lines. CI and local coverage both enable shell-integration-tests. For a posted codecov/patch discrepancy, query the compare API with full base and head SHAs and inspect only added diff lines. Moved, unchanged lines can count as patch misses; compare them with main before changing code. A compare result spanning files outside the PR may mean the base commit lacks a coverage report. The merge gate is in the root AGENTS.md.
-
-In a Tend sandbox without llvm-cov, use the Codecov API with full SHAs:
-
-```bash
-codecov_compare=$(mktemp)
-curl -sL 'https://api.codecov.io/api/v2/github/max-sixty/repos/worktrunk/compare/?base=<full-base-sha>&head=<full-head-sha>' > "$codecov_compare"
-jq '.files[] | select(.has_diff) | {name: .name.head, patch: .totals.patch}' "$codecov_compare"
-jq '.files[].lines[] | select(.is_diff and .added and .coverage.head == 1) | .number.head' "$codecov_compare"
-```
-
-The `file_report/<path>?sha=<full-sha>` endpoint shows whole-file coverage; omit a trailing slash from the path.
+Run `task coverage` and inspect `target/llvm-cov/html/index.html` or use `cargo llvm-cov report --show-missing-lines`. CI and local Rust coverage both enable `shell-integration-tests`. CI stores `cobertura.xml` in the GitHub Actions `code-coverage-report` artifact and JUnit timing in per-platform artifacts. Compare the affected lines against the exact candidate and report missing instrumentation; Rust coverage does not measure the Python Mission Control tests.
 
 ## Running wt Commands in Tests
 

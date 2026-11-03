@@ -1,0 +1,226 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-engineering-ledger/1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "mission_id", "entries", "traceability"],
+  "properties": {
+    "schema": {"const": "flyby/mission-control-engineering-ledger/1"},
+    "mission_id": {"type": "string", "minLength": 1},
+    "entries": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/entry"}
+    },
+    "traceability": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "requirement_id", "mechanism_ids", "spec_behavior_ids", "cell_ids",
+          "verification_ids", "qualification_gate_ids"
+        ],
+        "properties": {
+          "requirement_id": {"type": "string", "minLength": 1},
+          "mechanism_ids": {"$ref": "#/$defs/string_set"},
+          "spec_behavior_ids": {"$ref": "#/$defs/string_set"},
+          "cell_ids": {"$ref": "#/$defs/string_set"},
+          "verification_ids": {"$ref": "#/$defs/string_set"},
+          "qualification_gate_ids": {"$ref": "#/$defs/string_set"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "string_set": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mechanism_id", "name", "source_ids", "finding_class", "evidence_locators",
+        "problem", "observable_value", "mechanism", "role", "relationships",
+        "target_analysis", "disposition", "implementation", "verification",
+        "failure_recovery", "observability", "security_privacy", "performance_resources",
+        "portability", "rights", "rejected_alternatives", "open_questions", "confidence",
+        "authority_status"
+      ],
+      "properties": {
+        "mechanism_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 96,
+          "pattern": "^[A-Z][A-Z0-9_-]*$"
+        },
+        "name": {"type": "string", "minLength": 1},
+        "source_ids": {"$ref": "#/$defs/string_set"},
+        "finding_class": {
+          "enum": ["SOURCE_FACT", "ENGINEERING_INFERENCE", "ADMITTED_TARGET_AUTHORITY"]
+        },
+        "evidence_locators": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "problem": {"type": "string", "minLength": 1},
+        "observable_value": {"type": "string", "minLength": 1},
+        "mechanism": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["summary", "state", "data_flow", "control_flow", "algorithm_or_process", "lifecycle"],
+          "properties": {
+            "summary": {"type": "string", "minLength": 1},
+            "state": {"type": "string"},
+            "data_flow": {"type": "string"},
+            "control_flow": {"type": "string"},
+            "algorithm_or_process": {"type": "string", "minLength": 1},
+            "lifecycle": {"type": "string"}
+          }
+        },
+        "role": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["authority_owner", "responsibilities", "non_responsibilities"],
+          "properties": {
+            "authority_owner": {"type": "string", "minLength": 1},
+            "responsibilities": {"$ref": "#/$defs/string_set"},
+            "non_responsibilities": {"$ref": "#/$defs/string_set"}
+          }
+        },
+        "relationships": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["depends_on", "consumed_by", "conflicts_with", "composes_with", "affected_by", "affects"],
+          "properties": {
+            "depends_on": {"$ref": "#/$defs/string_set"},
+            "consumed_by": {"$ref": "#/$defs/string_set"},
+            "conflicts_with": {"$ref": "#/$defs/string_set"},
+            "composes_with": {"$ref": "#/$defs/string_set"},
+            "affected_by": {"$ref": "#/$defs/string_set"},
+            "affects": {"$ref": "#/$defs/string_set"}
+          }
+        },
+        "target_analysis": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["owner", "inspected_locations", "existing_capabilities", "gaps", "preserve"],
+          "properties": {
+            "owner": {"type": "string", "minLength": 1},
+            "inspected_locations": {"$ref": "#/$defs/string_set"},
+            "existing_capabilities": {"$ref": "#/$defs/string_set"},
+            "gaps": {"$ref": "#/$defs/string_set"},
+            "preserve": {"$ref": "#/$defs/string_set"}
+          }
+        },
+        "disposition": {
+          "enum": [
+            "IMPLEMENT", "EXTEND", "COMBINE", "ALREADY_SATISFIED", "REJECTED",
+            "DEFERRED_BY_OWNER", "BLOCKED"
+          ]
+        },
+        "implementation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reuse_mode", "target_requirements", "planned_locations", "landed_locations", "migration", "rollback"],
+          "properties": {
+            "reuse_mode": {
+              "enum": ["PARAPHRASED_SYNTHESIS", "ADAPTED_IMPLEMENTATION", "DIRECT_REUSE", "MIXED", "NONE"]
+            },
+            "target_requirements": {"$ref": "#/$defs/string_set"},
+            "planned_locations": {"$ref": "#/$defs/string_set"},
+            "landed_locations": {"$ref": "#/$defs/string_set"},
+            "migration": {"type": "string"},
+            "rollback": {"type": "string"}
+          }
+        },
+        "verification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["positive", "negative", "hostile", "compatibility", "performance", "verification_ids"],
+          "properties": {
+            "positive": {"$ref": "#/$defs/string_set"},
+            "negative": {"$ref": "#/$defs/string_set"},
+            "hostile": {"$ref": "#/$defs/string_set"},
+            "compatibility": {"$ref": "#/$defs/string_set"},
+            "performance": {"$ref": "#/$defs/string_set"},
+            "verification_ids": {"$ref": "#/$defs/string_set"}
+          }
+        },
+        "failure_recovery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["failure_modes", "recovery", "rollback"],
+          "properties": {
+            "failure_modes": {"$ref": "#/$defs/string_set"},
+            "recovery": {"$ref": "#/$defs/string_set"},
+            "rollback": {"$ref": "#/$defs/string_set"}
+          }
+        },
+        "observability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["signals", "diagnostics"],
+          "properties": {
+            "signals": {"$ref": "#/$defs/string_set"},
+            "diagnostics": {"$ref": "#/$defs/string_set"}
+          }
+        },
+        "security_privacy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["trust_boundaries", "security_impact", "privacy_impact"],
+          "properties": {
+            "trust_boundaries": {"$ref": "#/$defs/string_set"},
+            "security_impact": {"type": "string"},
+            "privacy_impact": {"type": "string"}
+          }
+        },
+        "performance_resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expected_effect", "calibration_needed", "resource_dimensions"],
+          "properties": {
+            "expected_effect": {"type": "string"},
+            "calibration_needed": {"type": "boolean"},
+            "resource_dimensions": {"$ref": "#/$defs/string_set"}
+          }
+        },
+        "portability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["supported", "constraints", "nonportable_source_specifics"],
+          "properties": {
+            "supported": {"$ref": "#/$defs/string_set"},
+            "constraints": {"$ref": "#/$defs/string_set"},
+            "nonportable_source_specifics": {"$ref": "#/$defs/string_set"}
+          }
+        },
+        "rights": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["use_mode", "reuse_source_ids", "obligations", "notice_or_attribution_refs"],
+          "properties": {
+            "use_mode": {
+              "enum": [
+                "OWNER_AUTHORIZED_REUSE", "LICENSE_PERMITTED_REUSE",
+                "CLEAN_ROOM_BEHAVIORAL_SYNTHESIS", "MIXED_RIGHTS_AWARE_SYNTHESIS",
+                "REFERENCE_ONLY"
+              ]
+            },
+            "reuse_source_ids": {"$ref": "#/$defs/string_set"},
+            "obligations": {"$ref": "#/$defs/string_set"},
+            "notice_or_attribution_refs": {"$ref": "#/$defs/string_set"}
+          }
+        },
+        "rejected_alternatives": {"$ref": "#/$defs/string_set"},
+        "open_questions": {"$ref": "#/$defs/string_set"},
+        "confidence": {"enum": ["HIGH", "MEDIUM", "LOW"]},
+        "authority_status": {"enum": ["EVIDENCE", "CANDIDATE", "ADMITTED", "REJECTED", "BLOCKED"]}
+      }
+    }
+  }
+}

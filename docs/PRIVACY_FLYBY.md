@@ -28,10 +28,16 @@ run the privacy tests. The following separate network capabilities remain:
   fork's project hooks include asset/package downloads and a post-merge
   pull/push command; inspect and approve them according to Worktrunk's normal
   approval flow.
-- The inherited GitHub Actions workflows use Codecov for test-result and
-  coverage uploads when those workflows run. They are not CLI usage telemetry.
-  Their secrets, runner permissions and third-party disclosures are controlled
-  by the repository's CI configuration.
+- GitHub Actions retains Rust coverage, JUnit test results and benchmark
+  results as GitHub artifacts; the workflows do not upload them to Codecov.
+  The inherited Tend bot workflows and upstream-owned benchmark and package
+  bot publishing have been removed. Tag-triggered GitHub releases may
+  use Sigstore via packslip; upstream SignPath submission has been removed,
+  so Windows artifacts are unsigned. This fork does not automatically
+  publish packages to external registries.
+- A pre-commit.ci-specific config is inherited; its presence does not establish
+  whether that external GitHub App is installed. If installed, disabling the
+  service requires managing the app outside this repository.
 
 This is a source audit, not a network sandbox. Git, GitHub clients, hooks,
 configured LLMs, dependency installers and CI providers can communicate when

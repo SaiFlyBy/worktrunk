@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-adjudication/16",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "cell_id", "attempt", "decision", "verifier",
+    "result_sha256", "context_receipt_sha256", "workcell_sha256",
+    "context_manifest_sha256", "verified_acceptance", "evidence", "rationale"
+  ],
+  "properties": {
+    "schema": {"const": "flyby/mission-control-adjudication/16"},
+    "cell_id": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Z][A-Z0-9_-]*$"},
+    "attempt": {"type": "integer", "minimum": 1},
+    "decision": {"enum": ["ACCEPTED", "REJECTED", "FAILED", "BLOCKED", "CANDIDATE"]},
+    "verifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "session_id"],
+      "properties": {
+        "identity": {"type": "string", "minLength": 1},
+        "session_id": {"type": ["string", "null"]}
+      }
+    },
+    "result_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "context_receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "workcell_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "context_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "verified_acceptance": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "value"],
+        "properties": {
+          "kind": {"type": "string", "minLength": 1},
+          "value": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "rationale": {"type": "string", "minLength": 1}
+  }
+}

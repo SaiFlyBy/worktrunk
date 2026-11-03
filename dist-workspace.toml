@@ -12,20 +12,15 @@ ci = "github"
 # modifying shell config files (.profile, .bashrc, etc.), which can cause "Permission
 # denied" errors on non-standard setups. This is cargo-dist's default behavior and
 # reasonable for most users. Users with custom shell configs can set
-# WORKTRUNK_NO_MODIFY_PATH=1 or use Homebrew/cargo install instead.
+# WORKTRUNK_NO_MODIFY_PATH=1 or install from a fork release archive instead.
 # See: https://github.com/max-sixty/worktrunk/issues/590
-installers = ["shell", "powershell", "homebrew"]
-# Homebrew tap repository
-tap = "max-sixty/homebrew-worktrunk"
-# Homebrew formula name (defaults to package name)
-formula = "wt"
-# Jobs that publish to external services
-publish-jobs = ["homebrew"]
+# A fork-owned package registry or Homebrew tap has not been configured.
+installers = ["shell", "powershell"]
 # Target platforms to build apps for (Rust target-triple syntax)
 targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-musl", "x86_64-unknown-linux-musl", "x86_64-pc-windows-msvc"]
 # Whether to install an updater program
 install-updater = false
-# Allow custom CI modifications (we have custom publish jobs for cargo, winget)
+# Allow fork-specific CI modifications to the generated release workflow
 allow-dirty = ["ci"]
 # Enable git-wt binary in release builds (opt-in for cargo install)
 features = ["git-wt"]

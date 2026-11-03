@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-ci-qualification-matrix/1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "mission_id", "candidate", "supported_matrix", "gates", "coverage", "summary"],
+  "properties": {
+    "schema": {"const": "flyby/mission-control-ci-qualification-matrix/1"},
+    "mission_id": {"type": "string", "minLength": 1},
+    "candidate": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["repository", "sha"],
+        "properties": {
+          "repository": {"type": "string", "minLength": 1},
+          "sha": {"type": "string", "pattern": "^[0-9a-fA-F]{40}$"}
+        }
+      }
+    },
+    "supported_matrix": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["matrix_id", "dimensions", "release_critical", "equivalence_rationale"],
+        "properties": {
+          "matrix_id": {"type": "string", "minLength": 1},
+          "dimensions": {"type": "object", "additionalProperties": {"type": "string"}},
+          "release_critical": {"type": "boolean"},
+          "equivalence_rationale": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "gates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "gate_id", "class", "required", "repository", "candidate_sha", "environment",
+          "execution_identity", "command_or_workflow", "real_path", "behavior_ids",
+          "requirement_ids", "status", "skip_classification", "evidence_refs", "artifact_refs"
+        ],
+        "properties": {
+          "gate_id": {"type": "string", "minLength": 1},
+          "class": {
+            "enum": [
+              "FORMAT_LINT_STATIC", "WORKFLOW_DEFINITION_VALIDATION", "SCHEMA_CONTRACT", "TYPECHECK", "UNIT_REGRESSION",
+              "INTEGRATION", "E2E", "PROPERTY_MODEL", "FUZZ_ADVERSARIAL",
+              "MUTATION_TEST_EFFECTIVENESS", "CONCURRENCY_RACE", "DETERMINISM_REPLAY_IDEMPOTENCY",
+              "FAULT_INJECTION_CHAOS_RECOVERY", "MIGRATION_ROLLBACK", "BACKUP_RESTORE_DATA_INTEGRITY",
+              "SECURITY", "SUPPLY_CHAIN", "REPRODUCIBILITY", "COMPATIBILITY",
+              "PERFORMANCE_LOAD_SOAK", "INSTALL_PACKAGE", "EXECUTABLE_DOCS_EXAMPLES_CONFORMANCE",
+              "REAL_ENVIRONMENT", "DEPLOYMENT_RECONCILIATION", "OBSERVABILITY_DIAGNOSTIC",
+              "PROVENANCE_LICENSE_SBOM_ATTESTATION", "OTHER"
+            ]
+          },
+          "required": {"type": "boolean"},
+          "repository": {"type": "string", "minLength": 1},
+          "candidate_sha": {"type": "string", "pattern": "^[0-9a-fA-F]{40}$"},
+          "environment": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["os", "runtime", "runner", "external_dependencies"],
+            "properties": {
+              "os": {"type": "string", "minLength": 1},
+              "runtime": {"type": "string", "minLength": 1},
+              "runner": {"type": "string", "minLength": 1},
+              "external_dependencies": {"$ref": "#/$defs/string_set"}
+            }
+          },
+          "execution_identity": {"type": "string", "minLength": 1},
+          "command_or_workflow": {"type": "string", "minLength": 1},
+          "real_path": {"type": "boolean"},
+          "behavior_ids": {"$ref": "#/$defs/string_set"},
+          "requirement_ids": {"$ref": "#/$defs/string_set"},
+          "status": {"enum": ["PENDING", "PASS", "FAIL", "BLOCKED", "NOT_RUN", "WAIVED"]},
+          "skip_classification": {"type": ["string", "null"]},
+          "waiver": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "required": ["reason", "authority", "evidence_ref", "evidence_sha256"],
+            "properties": {
+              "reason": {"type": "string", "minLength": 1},
+              "authority": {"type": "string", "minLength": 1},
+              "evidence_ref": {"type": "string", "minLength": 1},
+              "evidence_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            }
+          },
+          "evidence_refs": {"$ref": "#/$defs/string_set"},
+          "artifact_refs": {"$ref": "#/$defs/string_set"},
+          "started_at": {"type": ["string", "null"]},
+          "finished_at": {"type": ["string", "null"]}
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"status": {"const": "WAIVED"}}},
+            "then": {
+              "required": ["waiver"],
+              "properties": {"waiver": {"type": "object"}}
+            }
+          },
+          {
+            "if": {"properties": {"status": {"enum": ["PENDING", "PASS", "FAIL", "BLOCKED", "NOT_RUN"]}}},
+            "then": {"properties": {"waiver": {"type": "null"}}}
+          }
+        ]
+      }
+    },
+    "coverage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["behavior_or_requirement_id", "gate_ids"],
+        "properties": {
+          "behavior_or_requirement_id": {"type": "string", "minLength": 1},
+          "gate_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_pass", "required_fail", "required_blocked", "required_not_run", "waived"],
+      "properties": {
+        "required_pass": {"type": "integer", "minimum": 0},
+        "required_fail": {"type": "integer", "minimum": 0},
+        "required_blocked": {"type": "integer", "minimum": 0},
+        "required_not_run": {"type": "integer", "minimum": 0},
+        "waived": {"type": "integer", "minimum": 0}
+      }
+    }
+  },
+  "$defs": {
+    "string_set": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}

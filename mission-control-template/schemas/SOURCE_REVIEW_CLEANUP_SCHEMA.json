@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-source-review-cleanup/1",
+  "title": "SourceReviewCleanupManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "source_id",
+    "source_ref",
+    "adjudication_complete",
+    "final_review_ref",
+    "final_review_sha256",
+    "temporary_source_payloads",
+    "retained_evidence",
+    "delete_candidates"
+  ],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "flyby/source-review-cleanup/1"
+    },
+    "source_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "adjudication_complete": {
+      "type": "boolean"
+    },
+    "temporary_source_payloads": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ref",
+          "kind"
+        ],
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "SOURCE_DOWNLOAD",
+              "SOURCE_CLONE"
+            ]
+          }
+        }
+      }
+    },
+    "retained_evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ref",
+          "artifact_class",
+          "reason",
+          "protected"
+        ],
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "artifact_class": {
+            "type": "string",
+            "enum": [
+              "AUTHORITY_EVIDENCE",
+              "AGENT_AUTHORED_REVIEW",
+              "CHECKPOINT_EVIDENCE",
+              "JUSTIFIED_RESULT"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "protected": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "delete_candidates": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "final_review_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "final_review_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

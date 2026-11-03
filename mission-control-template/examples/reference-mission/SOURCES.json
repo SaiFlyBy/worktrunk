@@ -1,0 +1,51 @@
+{
+  "schema": "flyby/mission-control-source-registry/16",
+  "mission_id": "REFERENCE-MCV16",
+  "sources": [
+    {
+      "id": "owner-intent",
+      "kind": "OWNER_INTENT",
+      "locator": "MISSION.json#owner_intent",
+      "role": "Reference mission owner intent",
+      "disposition": "AUTHORITY_ONLY",
+      "inspection_scope": [
+        "MISSION.json#owner_intent"
+      ],
+      "copyright": {
+        "usage_mode": "AUTHORITY_ONLY",
+        "code_copy_allowed": false,
+        "text_copy_allowed": false,
+        "notes": "Owner-authored authority is referenced, not copied into donor-derived implementation.",
+        "rights_status": "NOT_APPLICABLE",
+        "rights_basis": "owner-authored mission authority",
+        "structure_reuse_allowed": false,
+        "obligations": [],
+        "evidence_ref": "MISSION.json#owner_intent"
+      }
+    },
+    {
+      "id": "reference-method",
+      "kind": "RESEARCH",
+      "locator": "urn:example:reference-method",
+      "role": "Example immutable research provenance used to exercise synthesis gates",
+      "pin": "v1",
+      "admission": "REFERENCE_FIXTURE",
+      "license": null,
+      "disposition": "SYNTHESIS_REQUIRED",
+      "inspection_scope": [
+        "documented method and observable invariants"
+      ],
+      "copyright": {
+        "usage_mode": "CLEAN_ROOM_BEHAVIORAL_SYNTHESIS",
+        "code_copy_allowed": false,
+        "text_copy_allowed": false,
+        "notes": "Fixture models paraphrased mechanism extraction only.",
+        "rights_status": "VERIFIED",
+        "rights_basis": "reference fixture is intentionally constrained to clean-room synthesis",
+        "structure_reuse_allowed": false,
+        "obligations": [],
+        "evidence_ref": "golden://reference-source-rights"
+      }
+    }
+  ]
+}

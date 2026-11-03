@@ -1,0 +1,86 @@
+{
+  "contract_version": "flyby/source-review-turn-contract/2.1",
+  "adoption_sha256": "9bb3408a6266dcfc241d767b288c3001ff0bda9fba2dc1724747efb4ba6e3452",
+  "source_binding": {
+    "source_id": "repo-reference-source",
+    "source_identity": "example/reference@0123456789abcdef0123456789abcdef01234567",
+    "rights_mode": "LICENSE_PERMITTED_REUSE",
+    "thread_id": "codex://threads/reference-source-review-generation-1",
+    "generation": 1,
+    "provider": "mailbox.codex",
+    "model": "gpt-5.6-luna",
+    "reasoning_effort": "max",
+    "execution_custody": "DIRECT_TOP_LEVEL_SESSION",
+    "child_thread_created": false,
+    "delegation_used": false,
+    "critical_partition_manifest_sha256": "59664af4b800cf47cb186fa251b69412cabf43488ac4958e73c20ebc191e5fea",
+    "target_base": "0123456789abcdef0123456789abcdef01234567",
+    "launch_receipt_sha256": "5db59c086f9d9a32ea7e49a3678567e1ad4518d82d462eb46a50c9d80e15de96"
+  },
+  "turn_metadata": {
+    "turn_number": 1,
+    "phase": "EXHAUSTIVE_DISCOVERY",
+    "phase_authorization": "CONVERGENCE_FORBIDDEN",
+    "phase_contract_sha256": "6f8291747a2318b5fca3b81430f2543fcd70d20affc57e6454454a674e8805c9",
+    "instruction_ref": "evidence/REFERENCE_TURN_1_PROMPT.txt",
+    "instruction_sha256": "c0fa44781a3f5cd9187584632e1596059cb4879ead1d245ba6e5ef822f024d26",
+    "prior_turn_sha256": null
+  },
+  "evidence": {
+    "ref": "evidence/REFERENCE_TURN_1_EVIDENCE.json",
+    "sha256": "f8e491cec90a8131c32b6f3e7d263b5d8bbf2c6585302bf8ac96f9cf8d8a9772",
+    "kind": "TURN_OUTPUT"
+  },
+  "turn_payload": {
+    "disposition_status": "IN_PROGRESS",
+    "covered_critical_partitions": [
+      "architecture"
+    ],
+    "uninspected_critical_partitions": [
+      "validation",
+      "target-integration"
+    ],
+    "material_omissions_remaining": true,
+    "inspected_locators": [
+      {
+        "source_ref": "example/reference@0123456789abcdef0123456789abcdef01234567",
+        "path": "evidence/REFERENCE_SOURCE_SNIPPET.txt",
+        "locator": "L1",
+        "content_sha256": "6719a7fa7d793eb75aef7dd5a33a74fc7eb76c334de074f32ebc675c8156e746"
+      }
+    ],
+    "extracted_contributions": [
+      {
+        "contribution_id": "repo-reference-source::MECH-REF-001",
+        "mechanism_id": "MECH-REF-001",
+        "source_locators": [
+          {
+            "source_ref": "example/reference@0123456789abcdef0123456789abcdef01234567",
+            "path": "evidence/REFERENCE_SOURCE_SNIPPET.txt",
+            "locator": "L1",
+            "content_sha256": "6719a7fa7d793eb75aef7dd5a33a74fc7eb76c334de074f32ebc675c8156e746"
+          }
+        ],
+        "rights_mode": "LICENSE_PERMITTED_REUSE",
+        "reuse_class": "PARAPHRASED_SYNTHESIS",
+        "concrete_derivation": "Re-express the inspected architecture invariant as a target-owned mechanism candidate.",
+        "obligations": [
+          "retain reference attribution"
+        ],
+        "runtime_intercept": {
+          "phase": "PROVENANCE_CONTROL",
+          "execution_order": 10,
+          "state_in": [
+            "source_evidence"
+          ],
+          "state_out": [
+            "target_requirement"
+          ],
+          "composition_mode": "PIPELINE_TRANSFORM"
+        }
+      }
+    ],
+    "verdict_rationale": "Architecture is inspected; validation and target integration remain open."
+  },
+  "turn_sha256": "8829953e4e1d0393f6d7ee13e6b88f0bf208a459222d8542b84b4ed131121b70"
+}

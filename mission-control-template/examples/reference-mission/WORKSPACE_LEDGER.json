@@ -1,0 +1,19 @@
+{
+  "schema": "flyby/mission-control-workspace-ledger/16",
+  "mission_id": "REFERENCE-MCV16",
+  "entries": [
+    {
+      "workspace_id": "control-authority",
+      "kind": "CONTROL",
+      "repository": "example/mission-control",
+      "branch": "main",
+      "base_sha": null,
+      "registered_cell": null,
+      "worktree_path": null,
+      "head_sha": null,
+      "dirty": null,
+      "semantic_status_sha256": null,
+      "remote_url": null
+    }
+  ]
+}

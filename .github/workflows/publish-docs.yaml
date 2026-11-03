@@ -27,6 +27,7 @@ concurrency:
 
 jobs:
   build-docs:
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id) }}
     runs-on: ubuntu-24.04
 
     steps:

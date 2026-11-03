@@ -1,0 +1,187 @@
+{
+  "schema": "flyby/mission-control-provenance-synthesis/16",
+  "mission_id": "REFERENCE-MCV16",
+  "methodology": {
+    "source_handling": "RIGHTS_AWARE_FULL_POTENTIAL_SYNTHESIS",
+    "implementation_rule": "FLYBY_OWNED_DERIVATION",
+    "replacement_rule": "PRESERVE_EXTEND_COMBINE_BEFORE_REPLACE"
+  },
+  "mechanisms": [
+    {
+      "id": "MECH-REF-001",
+      "name": "Evidence-bound mutation lifecycle",
+      "source_ids": [
+        "reference-method"
+      ],
+      "source_mechanism": "A mutation is promoted only after independently verifiable evidence binds the attempted behavior to the exact target revision.",
+      "evidence_locators": [
+        "urn:example:reference-method#promotion"
+      ],
+      "problem": "Prevent narrative completion claims from becoming authority.",
+      "existing_target_analysis": {
+        "inspected": [
+          "control/EXECUTION_STATE.json",
+          "contracts/schemas/ADJUDICATION_SCHEMA.json"
+        ],
+        "existing_capabilities": [
+          "independent adjudication"
+        ],
+        "gaps": [
+          "reference mission needs an explicit source-to-requirement synthesis fixture"
+        ],
+        "preserve": [
+          "worker/verifier custody separation"
+        ]
+      },
+      "disposition": "EXTEND_EXISTING",
+      "flyby_derivation": {
+        "owned_abstraction": "Reference evidence-backed lifecycle",
+        "behavior": "Bind source-derived lifecycle intent to existing Mission Control adjudication rather than adding a second promotion authority.",
+        "combines_with": [
+          "independent adjudication",
+          "immutable attempt evidence"
+        ],
+        "integration_points": [
+          "reference mutation requirement"
+        ],
+        "non_goals": [
+          "copying an external evaluator implementation"
+        ]
+      },
+      "target_requirements": [
+        "REF-001"
+      ],
+      "verification": [
+        "doctor proves bidirectional source/mechanism/requirement linkage"
+      ],
+      "copyright_posture": {
+        "mode": "CLEAN_ROOM_BEHAVIORAL_SYNTHESIS",
+        "copied_code": false,
+        "copied_text": false,
+        "distinctive_structure_reused": false,
+        "notes": "Behavioral fixture is expressed in Mission Control-native terms.",
+        "reuse_class": "PARAPHRASED_SYNTHESIS",
+        "reuse_source_ids": [],
+        "obligations": []
+      },
+      "confidence": "HIGH"
+    }
+  ],
+  "source_assessments": [
+    {
+      "source_id": "reference-method",
+      "inspected_locators": [
+        "urn:example:reference-method#promotion"
+      ],
+      "coverage_items": [
+        {
+          "capability": "evidence-bound promotion lifecycle",
+          "disposition": "BOUND_TO_MECHANISM",
+          "mechanism_ids": [
+            "MECH-REF-001"
+          ],
+          "rationale": "The useful fixture mechanism extends existing independent adjudication."
+        },
+        {
+          "capability": "source-specific evaluator implementation details",
+          "disposition": "REJECTED_NON_GOAL",
+          "mechanism_ids": [],
+          "rationale": "The reference fixture does not authorize copying an evaluator implementation."
+        }
+      ],
+      "open_questions": [],
+      "coverage_status": "COMPLETE",
+      "independent_review": {
+        "state": "VERIFIED",
+        "reviewer": "reference-golden-verifier",
+        "reviewer_identity": "reference-golden-verifier",
+        "extractor_identity": "reference-golden-reviewer",
+        "review_ref": "evidence/REFERENCE_SOURCE_INDEPENDENT_REVIEW.json",
+        "review_sha256": "97fea37fb3ddd737033328de1b404ccb5711b346673b96a360e5cc8fb7f8c905",
+        "source_record_sha256": "a77896c6354fdd071f499e54b8b84f78a3dde20f3da85e1d0e6ae14c69f7abf8",
+        "coverage_sha256": "e3d3ea88c2052212515bcea26e3b0c4c4d59c5945954ac80e18fa5535864e584",
+        "contributions_sha256": "cab446cdb90dee079319e62f8a8b7e727ab4eed041a5a87fa54f3c9fac840d51",
+        "mechanisms_sha256": null
+      },
+      "deep_review": {
+        "state": "COMPLETE",
+        "strategy": "ADAPTIVE_MULTI_ROUND_EXCORIATION",
+        "minimum_rounds": 3,
+        "critical_partitions": [
+          "capability discovery",
+          "omission/adversarial challenge",
+          "target integration"
+        ],
+        "uninspected_critical_partitions": [],
+        "rounds": [
+          {
+            "round": 1,
+            "reviewer": "reference-golden-reviewer",
+            "focus": "exhaustive capability discovery",
+            "evidence_ref": "golden://reference-deep-review/1",
+            "findings": 2,
+            "disposition": "DEEPEN"
+          },
+          {
+            "round": 2,
+            "reviewer": "reference-golden-reviewer",
+            "focus": "omission and rejection challenge",
+            "evidence_ref": "golden://reference-deep-review/2",
+            "findings": 0,
+            "disposition": "DEEPEN"
+          },
+          {
+            "round": 3,
+            "reviewer": "reference-golden-reviewer",
+            "focus": "target integration and convergence",
+            "evidence_ref": "golden://reference-deep-review/3",
+            "findings": 0,
+            "disposition": "COMPLETE"
+          }
+        ],
+        "convergence": {
+          "material_omissions_remaining": false,
+          "rationale": "All declared critical partitions were inspected and the bounded golden source has no remaining material opportunities."
+        }
+      },
+      "mechanism_contributions": [
+        {
+          "contribution_id": "reference-method::MECH-REF-001",
+          "mechanism_id": "MECH-REF-001",
+          "source_locators": [
+            "urn:example:reference-method#promotion"
+          ],
+          "contribution": "A mutation is promoted only after independently verifiable evidence binds the attempted behavior to the exact target revision.",
+          "rights_mode": "CLEAN_ROOM_BEHAVIORAL_SYNTHESIS",
+          "reuse_class": "PARAPHRASED_SYNTHESIS",
+          "obligations": []
+        }
+      ]
+    }
+  ],
+  "cross_source_synthesis": {
+    "state": "VERIFIED",
+    "evidence_ref": "evidence/REFERENCE_CROSS_SOURCE_REVIEW.json",
+    "mechanism_graph_sha256": "32d5edb8dbe5f4239622e58917a400b616ab25ab3189748e9fcd7062153c227c",
+    "rationale": "Golden fixture has one source-local mechanism graph and separately binds the final global graph.",
+    "intercept_matrix": [
+      {
+        "mechanism_id": "MECH-REF-001",
+        "phase": "PROVENANCE_CONTROL",
+        "execution_order": 10,
+        "state_in": [
+          "source_evidence"
+        ],
+        "state_out": [
+          "target_requirement"
+        ],
+        "composition_mode": "PIPELINE_TRANSFORM",
+        "conflicts_with": []
+      }
+    ],
+    "combination_hypotheses": [],
+    "intercept_matrix_sha256": "a7d3521ec0115c1b76416f7d53ac0203516c4f04e44954bc860646b6d1e13996",
+    "combination_hypotheses_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "evidence_sha256": "0d6074bf8f6866513a9a9762232b6a9545fa67a73734598c6b2f0da9fa38ab53"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "source_id": "repo-reference-source",
+  "turn": 1,
+  "finding": "architecture invariant inspected",
+  "source_ref": "example/reference@0123456789abcdef0123456789abcdef01234567"
+}

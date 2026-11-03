@@ -1,8 +1,7 @@
 name: ci
 
 # Runner versions are pinned to avoid surprise breaking changes from -latest migrations.
-# The tend-weekly workflow checks for updates and opens bump PRs (see
-# .claude/skills/running-tend/SKILL.md → "Weekly Maintenance: CI Pin Bumps").
+# Review pinned runner versions during regular maintenance.
 # - windows-2025: Pinned to current -latest equivalent
 # - ubuntu-24.04, macos-26: Pinned to current -latest equivalents
 
@@ -26,6 +25,7 @@ env:
 
 jobs:
   lint:
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id) }}
     runs-on: ubuntu-24.04
     steps:
     - name: 📂 Checkout code
@@ -42,7 +42,11 @@ jobs:
     - name: 🔍 Pre-commit hooks
       uses: pre-commit/action@v3.0.1
 
+    - name: Check CI privacy and admission conventions
+      run: python3 .github/tests/ci_policy_test.py
+
   feature-check:
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id) }}
     # Guards the library/CLI cleave: the `cli` feature gates clap, skim,
     # crossterm, termimad, env_logger, humantime. If anything reachable from
     # `pub mod` in src/lib.rs starts using one of those crates, library
@@ -71,6 +75,7 @@ jobs:
       run: cargo check --bin wt --no-default-features --features cli
 
   test:
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id) }}
     strategy:
       fail-fast: false
       matrix:
@@ -134,16 +139,6 @@ jobs:
         name: junit-${{ matrix.name }}
         path: target/nextest/default/junit.xml
 
-    - name: 📊 Upload test results to Codecov
-      if: ${{ !cancelled() }}
-      uses: codecov/codecov-action@v7.1.1
-      with:
-        use_pypi: true
-        version: 11.3.1
-        token: ${{ secrets.CODECOV_TOKEN }}
-        files: target/nextest/default/junit.xml
-        report_type: test_results
-
   # The pre-merge gates that aren't the nextest suite: Cargo.lock freshness,
   # doctests, and the rustdoc `-Dwarnings` build. Split out of `test` so the
   # full suite (the long-pole) can later be replaced on PRs by the
@@ -153,6 +148,7 @@ jobs:
   # = …)]` code, which only the full `test` matrix compiles; acceptable for a
   # gate whose job is broken links and stale locks, not platform behavior.
   fast-checks:
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id) }}
     runs-on: ubuntu-24.04
     steps:
     - name: 📂 Checkout code
@@ -171,6 +167,7 @@ jobs:
 
   # Check if Cargo/CI files changed (for conditional jobs below)
   changes:
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id) }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read

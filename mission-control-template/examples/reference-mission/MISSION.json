@@ -1,0 +1,16 @@
+{
+  "schema": "flyby/mission-control-mission/16",
+  "mission_id": "REFERENCE-MCV16",
+  "control_repository": "example/control",
+  "authoritative_working_branch": "reference/mission-control",
+  "target_repositories": [
+    {
+      "repository": "example/target",
+      "baseline_sha": "0123456789abcdef0123456789abcdef01234567"
+    }
+  ],
+  "previous_mission_handoff": null,
+  "previous_mission_handoff_sha256": null,
+  "owner_intent": ["Prove the reusable Mission Control template can execute its own golden lifecycle."],
+  "hard_boundaries": ["Do not require network access."]
+}
