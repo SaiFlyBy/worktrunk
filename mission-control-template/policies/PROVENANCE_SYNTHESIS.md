@@ -4,7 +4,7 @@ This policy defines how a Mission Control mission turns repositories, papers, pr
 
 ## Purpose
 
-Provenance is not a bibliography and it is not a reason to underuse a source. An admitted source is complete only when Mission Control has deliberately inspected its material capabilities, challenged its first-pass interpretation, classified every materially useful opportunity, translated the surviving value into target requirements, and retained the exact rights/attribution basis for whatever was reused.
+Provenance is not a bibliography and it is not a reason to underuse a source. An admitted source is complete only when Mission Control has inspected its material capabilities using evidence appropriate to the source and scope, classified every materially useful opportunity, translated the surviving value into target requirements, and retained the exact rights/attribution basis for whatever was reused.
 
 The mandatory pipeline is:
 
@@ -12,7 +12,7 @@ The mandatory pipeline is:
 MISSION intent and hard boundaries
   -> immutable source admission
   -> exact ownership/license/rights verification
-  -> multi-round source excoriation where warranted
+  -> source-specific evidence qualification
   -> full-potential capability inventory
   -> existing-target assessment
   -> synthesis/disposition and direct-reuse decision
@@ -56,17 +56,15 @@ Permissive or owner-authorized reuse removes artificial clean-room limits; it do
 
 A moving default branch, mutable web page, unversioned research locator, or unverified license claim is not sufficient provenance for a source that can influence mutation. A previous-mission handoff is also immutable source authority: `MISSION.json` must bind its exact SHA-256, the generated `PREVIOUS_MISSION` source record must carry the same digest as its pin, and doctor must reject later byte drift.
 
-## Phase 2: multi-round source excoriation and full-potential coverage
+## Phase 2: evidence-based source qualification
 
 `corpus/PROVENANCE_SYNTHESIS.json` is the required bridge between source admission and target requirements.
 
-A source assessment must not confuse one useful idea with source coverage. The normal `SYNTHESIS_REQUIRED` path uses `deep_review` to record how the source was challenged. Review depth is independent of reuse rights: clean-room sources can contain valuable behaviors and invariants even when their copyrighted expression cannot be copied. `ADAPTIVE_MULTI_ROUND_EXCORIATION` starts with at least three deliberate passes:
+For new missions, `flyby/mission-control-provenance-synthesis/17` uses `EVIDENCE_BASED_QUALIFICATION`. Set `deep_review.state` to `COMPLETE` only after qualification, and identify critical and uninspected critical partitions. Its `rounds` list contains one or more records numbered consecutively from 1; each records `reviewer`, `focus`, `findings`, `disposition`, a mission-local `evidence_ref`, and the exact `evidence_sha256` of that evidence. The final record has `disposition: COMPLETE`; no critical partitions remain uninspected, and `convergence.material_omissions_remaining` is false with a rationale. One record can complete the assessment, and /17 does not use `minimum_rounds`. Record inspected source locators, relevant source facts and target comparisons, findings and limitations, and the rationale for the assessed coverage. Choose the investigation and verification needed for the source's material claims, intended use, and risks. Inspect further when evidence reveals a material gap; do not substitute a prescribed posture or number of rounds for useful evidence.
 
-1. **exhaustive discovery** — inspect architecture, runtime behavior, data models, algorithms, UX/workflows, tests, failure recovery, operational tooling, evaluation, performance, extension seams, and documented limitations; enumerate all capabilities that could materially benefit the target;
-2. **omission/adversarial challenge** — revisit unread or weakly understood areas, attack the first summary, identify hidden dependencies and second-order capabilities, distinguish core mechanisms from accidental implementation, and search specifically for high-value features omitted in round one;
-3. **target-integration deepening** — compare the surviving capabilities against the current target, identify direct reuse versus adaptation versus combination opportunities, discover cross-source combinations, and challenge any rejection that was based merely on minimizing change.
+Review depth is independent of reuse rights: clean-room sources can contain valuable behaviors and invariants even when their copyrighted expression cannot be copied. Record and resolve material omissions, open questions, and uninspected critical partitions before claiming complete coverage; account for all extracted mechanisms and preserve independent source review.
 
-Three turns are a floor, never a stopping rule. Round 1 must partition the source into critical subsystems/sections and record any uninspected critical partitions. Further same-thread turns are mandatory while material omissions, unresolved high-value questions, or uninspected critical partitions remain. There is no fixed maximum turn count. Rights mode governs direct/adapted reuse; it never authorizes skipping deep capability review.
+New /17 missions accept only /17 provenance records. Existing initialized missions retain the exact schema, policies, runtime, evidence, and hashes frozen at initialization. Their /16 `ADAPTIVE_MULTI_ROUND_EXCORIATION` records require the frozen /16 mission contract and keep their original validation rules; do not rewrite or relabel them to imitate /17. `examples/reference-qualification-v17/` demonstrates a /17 assessment and its evidence using the existing reference mission's source and cross-source evidence; it is not a standalone mission.
 
 ### Bounded Reading Tranches & Durable Incremental Checkpoints
 
@@ -77,7 +75,7 @@ Every source review uses the following resumable cycle:
 1. resolve the exact source identity, immutable version, and license/rights evidence;
 2. select one bounded tranche (subsystem, file set, section, page range, commit range, or equivalent);
 3. inspect that tranche;
-4. persist a durable checkpoint conforming to `SOURCE_REVIEW_CHECKPOINT_SCHEMA.json` (`flyby/source-review-checkpoint/1`);
+4. persist a durable checkpoint using the generation's contract: `SOURCE_REVIEW_CHECKPOINT_V2_SCHEMA.json` (`flyby/source-review-checkpoint/2`) for v3, or the frozen `SOURCE_REVIEW_CHECKPOINT_SCHEMA.json` (`flyby/source-review-checkpoint/1`) for historical generations;
 5. validate that checkpoint before reading the next tranche;
 6. on compaction/restart, load the latest validated checkpoint and resume at its exact next cursor.
 
@@ -90,7 +88,7 @@ Checkpoint content must preserve, at minimum:
 - `mechanism_candidates` whose `finding_class` is `SOURCE_FACT` and which carry exact evidence locators;
 - `mc_reinterpretation_hypotheses` whose `finding_class` is `ENGINEERING_INFERENCE`, keeping target adaptation hypotheses mechanically distinct from source facts;
 - `rejected_or_non_adoptable` mechanisms with evidence locator and rationale;
-- `failure_and_adversarial_notes` with kind, locator, observation, and downstream impact;
+- `failure_and_adversarial_notes`, the retained checkpoint field for concrete failure, negative, or hostile-input evidence when relevant, with kind, locator, observation, and downstream impact; the array may be empty when there is no such finding;
 - confidence, uninspected gaps, open questions, unresolved rights issues, and the exact `next_read_cursor`;
 - `completion_flag`, which may not be true while source partitions, questions/gaps, or rights issues remain.
 
@@ -110,9 +108,9 @@ Each source assessment inventories materially relevant capabilities as:
 - `ALREADY_SATISFIED` by the target and therefore requiring verification rather than a new component;
 - `REJECTED_NON_GOAL` with an evidence-based rationale.
 
-For the normal `SYNTHESIS_REQUIRED` path, coverage is `COMPLETE` only when open questions are empty, every critical partition is inspected, the final same-thread round explicitly converges, `deep_review.convergence.material_omissions_remaining` is false, all extracted mechanisms are bidirectionally accounted, and independent review binds both the exact coverage/deep-review trajectory and source-local mechanism contributions. A `VERIFIED` independent review is not a metadata label: it requires a mission-local typed receipt whose SHA-256 is bound in the assessment, whose reviewer identity is distinct from the source/deep-review extractor custody, and whose source-record, coverage, and source-local contribution digests exactly match current authority.
+For the normal `SYNTHESIS_REQUIRED` path, coverage is `COMPLETE` only when material open questions and omissions are resolved, critical source scope is accounted for, all extracted mechanisms are bidirectionally accounted, and independent review binds the exact source qualification and source-local mechanism contributions. A `VERIFIED` independent review is not a metadata label: it requires a mission-local typed receipt whose SHA-256 is bound in the assessment, whose reviewer identity is distinct from the source extractor's custody, and whose source-record, coverage, and source-local contribution digests exactly match current authority. Select and document concrete failure, negative, or hostile-input checks when justified by the material behavior and risk.
 
-`ADJUDICATED_SYNTHESIS` is the alternate authorizing path for a source that already completed a stronger independent multi-stage adjudication outside the ordinary deep-review shape. It does not waive provenance or engineering closure. Its source assessment must be `COMPLETE`, have no open material questions, preserve an immutable terminal adjudication receipt and exact adjudicated candidate snapshot with SHA-256 bindings, and mark that adjudication `VERIFIED` and `READY_FOR_AUTHORITY_ADMISSION`. The adjudicated source still requires rights-aware source registration, exhaustive mechanism contributions, concrete target requirements, hostile verification, and bidirectional source -> mechanism -> requirement accounting. A citation, summary, model verdict, or unbound transcript is never enough.
+`ADJUDICATED_SYNTHESIS` is the alternate authorizing path for a source that already completed independent adjudication outside the ordinary source-qualification shape. It does not waive provenance or engineering closure. Its source assessment must be `COMPLETE`, have no open material questions, preserve an immutable terminal adjudication receipt and exact adjudicated candidate snapshot with SHA-256 bindings, and mark that adjudication `VERIFIED` and `READY_FOR_AUTHORITY_ADMISSION`. The adjudicated source still requires rights-aware source registration, exhaustive mechanism contributions, concrete target requirements, verification appropriate to the material risks, and bidirectional source -> mechanism -> requirement accounting. A citation, summary, model verdict, or unbound transcript is never enough.
 
 Shared cross-source mechanisms are synthesized and digest-bound separately so one source change does not invalidate unrelated source review custody.
 
@@ -215,7 +213,7 @@ Before acceptance, the verifier checks:
 5. direct/adapted reuse is authorized by exact source rights evidence;
 6. copied/adapted material is bound to the correct `reuse_source_ids` and all obligations are satisfied;
 7. clean-room sources did not leak code/text/distinctive structure;
-8. provenance pins, deep-review receipts, mechanisms, requirements, and implementation locations remain exact;
+8. provenance pins, source-qualification receipts, mechanisms, requirements, and implementation locations remain exact;
 9. rejected/non-goal features did not leak into scope without a new reviewed decision.
 
 ## Phase 10: integration, qualification, closure
@@ -225,7 +223,7 @@ Integration evaluates synthesized behavior, not donor demos. Qualification cover
 Closure preserves:
 
 - immutable source registry and rights evidence;
-- multi-round source review/excoriation receipts;
+- source-qualification and independent-review receipts, including applicable historical review receipts;
 - provenance synthesis matrix;
 - target corpus and provenance-materialization contract;
 - direct/adapted reuse locations and obligations;
@@ -240,7 +238,7 @@ Closure preserves:
 2. A permissive/owner-authorized source is not artificially constrained to clean-room synthesis.
 3. Permission to copy does not make copying the default engineering choice.
 4. A source review is incomplete while material high-value capabilities remain unassessed.
-5. Large/high-value sources use repeated deepening, not one surface summary.
+5. Match source qualification depth to the material scope and risks; inspect further when evidence reveals a material gap.
 6. Provenance without mechanism disposition is incomplete.
 7. Mechanism disposition without current-target assessment is incomplete.
 8. Source-driven requirements without mechanism IDs and rights posture are invalid.
@@ -275,24 +273,27 @@ A source listed on a composite FlyBy requirement does not automatically support 
 Reviewed source rows may outnumber executable mechanisms. Rejected or negative rows remain full-fidelity evidence with their locators and hostile-test implications; they are not deleted merely to reduce the mechanism count.
 ### Final source-artifact and cross-source seal binding
 
-A `COMPLETE` deep review is sealable only when its final source-review artifact is bound by mission-relative reference, SHA-256, exact immutable source identity/version, owning source-review thread, review-round count, and final executable-mechanism count. Completed round numbers are unique and contiguous. Round evidence is hash-bound; prospective turn-chain hashes must be captured at execution time and must never be fabricated retroactively.
+A `COMPLETE` source qualification is sealable only when its final source-review artifact is bound by mission-relative reference, SHA-256, exact immutable source identity/version, owning source-review thread, and final executable-mechanism count. Evidence records and any turn chain must satisfy their declared contract and preserve exact hashes. Historical /16 deep-review records retain their original minimum-round and contiguous-numbering checks. The /16 schema permits null per-round evidence references, and its runtime does not require or verify per-round evidence hashes; preserve historical records without fabricating hashes.
 
 Independent final review binds the current finalized source artifact as well as the source-local coverage/contribution/mechanism digests, and the independent reviewer identity must differ from the source-owner thread. A later source-artifact change therefore returns the source to review rather than inheriting an old VERIFIED receipt.
 
 `VERIFIED` cross-source synthesis separately binds the exact final mechanism graph, intercept matrix, combination-hypothesis set, and review evidence artifact. Hypothesis ids are unique. An adopted cross-source result must preserve all contributing source identities in its result mechanism lineage; an existing single-source mechanism cannot be relabeled as a multi-source synthesis result.
 ### Direct review-session custody and birth evidence
 
-Post-enforcement source review is performed only in a direct top-level review session. The review session itself must not spawn, delegate, or forward source-review work to child threads, subagents, or forks. A canonical source owner cannot be admitted from self-declared custody metadata alone; it requires a hash-bound direct launch receipt backed by mechanical provider session birth evidence.
+Post-enforcement source review is performed only in a direct top-level review session. The review session itself must not spawn, delegate, or forward source-review work to child threads, subagents, or forks. A canonical source owner cannot be admitted from self-declared custody metadata alone; it requires a hash-bound direct launch receipt and a session-birth record. These checks do not authenticate the record's origin or prove its event history is complete.
 
 Direct launch receipt invariants:
 1. `approval_policy`: strictly `never`.
-2. `sandbox_policy`: strictly `danger-full-access` (or template-allowed read-only direct-top-level policy if distinguished).
+2. `sandbox_policy`: strictly `danger-full-access`.
 3. `child_thread_created`: `false`.
 4. `delegation_used`: `false`.
-5. `session_birth_evidence_ref` & `session_birth_evidence_sha256`: mission-local normalized JSON or JSONL provider session birth record capturing the top-level session initialization events.
-6. The validator mechanically parses the birth evidence and rejects any function call or output naming `create_thread` or `fork_thread`, any non-conforming approval/sandbox policy, any thread ID mismatch, or any evidence hash drift.
+5. `session_birth_evidence_ref` and `session_birth_evidence_sha256` bind mission-local UTF-8 evidence. V3 accepts either:
+   - A normalized JSON object with `schema: flyby/provider-session-birth-evidence/1`, the generation's exact `thread_id` and `provider`, `birth_type: DIRECT_TOP_LEVEL_START`, `approval_policy: never`, `sandbox_policy: danger-full-access`, `child_thread_created: false`, and `delegation_used: false`. Its nonempty `session_birth_lines` array contains event objects, including at least one `turn_context` whose payload records the permitted approval and sandbox policies. Event or payload identity fields are optional in this form, but must match the generation if present.
+   - JSONL whose nonblank lines each parse as event objects. At least one event must be a `turn_context`; each `turn_context` carries the generation's exact `thread_id` and `provider` on the event or its payload, and its payload records the permitted approval and sandbox policies. Any identity fields in other events must also match.
+   For either form, an event's sandbox policy may be the string `danger-full-access` or an object with `type: danger-full-access`.
+6. The v3 validator checks the evidence hash, identities, recorded policy events, and recorded `response_item` function calls or outputs named `create_thread` or `fork_thread`. V2 keeps its historical parser and does not gain the stricter v3 checks retroactively. Neither the structured records nor their hashes authenticate who produced them or prove the event history is complete; verify the origin independently when required.
 
-Its append-only v2 turn envelopes bind self/predecessor hashes, current phase/prompt digests, the exact immutable source identity, source-pinned locator content hashes, evidence receipts, rights mode, and critical-partition accounting. `CONVERGED` is valid only in a convergence-permitted phase after all critical partitions are accounted and material omissions are false.
+Versioned turn envelopes bind self/predecessor hashes, current phase/prompt digests, the exact immutable source identity, source-pinned locator content hashes, evidence receipts, rights mode, and critical-partition accounting. The template defaults to `flyby/source-review-turn-contract/3` and `flyby/source-review-turn-chain-index/2`. Its `flyby/source-review-turn-contract-adoption/2` record binds the exact turn, index, and direct-launch receipt schema bytes by reference and SHA-256; if checkpoints are present, it also binds `SOURCE_REVIEW_CHECKPOINT_V2_SCHEMA.json` through `checkpoint_schema_ref` and `checkpoint_schema_sha256`. The first phase is `EVIDENCE_ASSESSMENT` and later turns, when needed, use `EVIDENCE_CONTINUATION`. Each declared covered critical partition has a `turn_payload.partition_evidence` entry referencing at least one locator recorded as inspected in that turn. The validator does not re-read source content at that locator or independently verify its `content_sha256`; corroborate those source-content claims as appropriate. Convergence is permitted after evidence-based assessment when the material scope is accounted for and omissions are resolved. Historical v2.1 chains retain their original phase sequence, index /1, and convergence rules. `tools/source_review_turn_chain.py` is a Python library with no CLI or automatic mission-doctor caller and is not copied into a new mission's runtime; validation requires an explicit caller.
 
 Pre-enforcement generations remain explicitly `LEGACY_PRE_ENFORCEMENT`; they are not upgraded by inventing predecessor or turn hashes. Child-created results may be retained only as corroborative/historical evidence and must be tombstoned from canonical authority. Replacement custody is source-specific: one active source/generation owner, exact same-source tombstones for retired owners, and no tombstoned thread may re-enter current source or independent-review authority. Replacement-required state must clear active thread/turn count and preserve retired custody evidence.
 

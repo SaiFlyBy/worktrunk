@@ -1,6 +1,6 @@
 # MCV Engineering Audit and Adjudication Methodology
 
-This policy carries forward the source-review, adversarial audit, serial adjudication, and durable-closure methodology proven during MCV6. It is reusable Mission Control methodology, not mission-specific authority. It sits inside the provenance-to-mutation chain and does not replace the top-level Mission Control lifecycle, schemas, or explicit owner admission decisions.
+This policy carries forward the source-review, independent evidence assessment, serial adjudication, and durable-closure methodology proven during MCV6. It is reusable Mission Control methodology, not mission-specific authority. It sits inside the provenance-to-mutation chain and does not replace the top-level Mission Control lifecycle, schemas, or explicit owner admission decisions.
 
 The method is provider-agnostic. A mission may use different models, providers, or human reviewers for the roles below, but it must preserve the evidence, independence, custody, seriality, and authority boundaries defined here. For durable multi-item assignment, successor append, automatic mailbox refill, and different-seat phase scheduling, use `NATIVE_TASK_PIPELINE.md`; that scheduler never weakens the Stage-A/B/C authority rules in this policy.
 
@@ -10,7 +10,7 @@ Keep these states distinct at all times:
 
 1. **source evidence** — what the exact source/version actually supports;
 2. **engineering inference** — what may be useful or compatible in the target;
-3. **review quality** — whether the source package has been comprehensively and independently challenged;
+3. **review quality** — whether the source package has been independently assessed against evidence appropriate to its assigned scope;
 4. **readiness/preflight** — whether current evidence is packaged for adjudication;
 5. **Stage C adjudication** — source-by-source disposition against current target authority;
 6. **authority admission** — the owner/coordinator decision that changes shared control authority;
@@ -78,7 +78,7 @@ Before mechanism interpretation:
 Then review bounded source tranches with exact locators and a durable next-read cursor. For each tranche:
 
 - distinguish `SOURCE_FACT`, `ENGINEERING_INFERENCE`, and authority/admission statements;
-- challenge omissions, nonportable assumptions, target conflicts, failure semantics, observability, security boundaries, rights, and deterministic verification needs;
+- inspect relevant omissions, nonportable assumptions, target conflicts, failure semantics, observability, security boundaries, rights, and deterministic verification needs;
 - stop and close the first material finding before continuing;
 - immediately update the authorized source-local checkpoint and candidate/mutation-plan artifact;
 - persist coverage, unresolved questions, confidence, validation evidence, and the exact next cursor.
@@ -95,11 +95,11 @@ A Stage-A terminal package normally contains or points to:
 
 Stage A may stage candidates. It does not admit them to shared authority.
 
-## 5. Stage B — independent adversarial audit
+## 5. Stage B — independent evidence review
 
 Stage B is an independent audit of Stage A and its source package. The Stage-A author/session must not self-certify Stage B for the same generation.
 
-Stage B is not a hash-only preflight. It must independently re-prove the material source/package claims using the same one-finding-at-a-time audit loop. Inside the assigned package it must cover, as applicable:
+Stage B is not a hash-only preflight. It must independently assess material source/package claims against the underlying evidence, investigating or verifying further where the scope and risks justify it, using the same one-finding-at-a-time audit loop. Inside the assigned package it must cover, as applicable:
 
 - canonical identity/version and source custody;
 - rights/reuse boundaries, including linked artifacts;
@@ -114,7 +114,7 @@ Stage B is not a hash-only preflight. It must independently re-prove the materia
 - static/specification evidence versus actually executed target-native evidence;
 - terminal lineage, validation, current-selector precedence, and cleanup state.
 
-A Stage-B terminal receipt is not sufficient merely because it exists. If later quality review proves missing bounded coverage, unchallenged candidates, false lineage, stale selector precedence, or unsupported validation claims, that Stage-B generation becomes historical custody for closure purposes until an additive remediation generation plus independent QA proves closure.
+A Stage-B terminal receipt is not sufficient merely because it exists. If later quality review proves missing bounded coverage, candidates without necessary review, false lineage, stale selector precedence, or unsupported validation claims, that Stage-B generation becomes historical custody for closure purposes until an additive remediation generation plus independent QA proves closure.
 
 ## 6. Independent QA and remediation generations
 
@@ -124,7 +124,7 @@ A QA reviewer:
 
 - is read-only over the source package unless separately authorized to remediate;
 - must be independent of the current author/remediator when the result is used as a hard closure gate;
-- verifies durable coverage, candidate challenge, rights/owner analysis, negative validation, and terminal lineage rather than trusting summary prose;
+- verifies durable coverage, candidate evidence, rights/owner analysis, applicable negative validation, and terminal lineage rather than trusting summary prose;
 - fails closed when the evidence does not prove the claimed completeness.
 
 A QA `FAIL` does not erase the reviewed bytes. It blocks their use as current quality authority and routes the smallest evidence-backed remediation. Remediation creates a new additive generation, preserves the failed generation, closes findings serially, and receives a different-seat/session QA before becoming current when independence is required.

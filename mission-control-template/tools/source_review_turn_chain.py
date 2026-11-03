@@ -1,3 +1,10 @@
+"""Validate source-review turns against their adopted review contract.
+
+The original v2.1 phase sequence remains valid for historical evidence.  New
+v3 chains use evidence-based assessment and continuation, with the adopted
+version, exact schema bytes, and adoption record bound before validation.
+The caller still owns the authority and independent adjudication of results.
+"""
 from __future__ import annotations
 import hashlib, json, re
 from pathlib import Path
@@ -262,10 +269,91 @@ def parse_and_validate_birth_evidence(path: Path, expected_thread: str, expected
     return errs
 
 
+
+def parse_and_validate_v3_birth_evidence(path: Path, expected_thread: str, expected_provider: str) -> list[str]:
+    """Require bound identity and observed policy events; do not authenticate origin.
+
+    Normalized JSON has schema /1, thread_id, provider, direct birth/policy
+    fields, and session_birth_lines. JSONL events carry thread_id and provider
+    on each turn_context event (at the event or payload level). An observed
+    sandbox policy may be a string or an object with a type field.
+    """
+    errs = []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return [f"birth evidence cannot be read as UTF-8: {exc}"]
+    if not text.strip():
+        return ["birth evidence is empty"]
+
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        parsed = None
+
+    normalized = isinstance(parsed, dict) and not ("type" in parsed and "payload" in parsed)
+    if normalized:
+        if parsed.get("schema") != "flyby/provider-session-birth-evidence/1":
+            errs.append("normalized birth evidence schema is missing or unsupported")
+        if parsed.get("thread_id") != expected_thread:
+            errs.append("normalized birth evidence thread identity is missing or mismatched")
+        if parsed.get("provider") != expected_provider:
+            errs.append("normalized birth evidence provider identity is missing or mismatched")
+        if parsed.get("birth_type") != "DIRECT_TOP_LEVEL_START":
+            errs.append("normalized birth evidence must identify a direct top-level start")
+        if parsed.get("approval_policy") != "never" or parsed.get("sandbox_policy") != "danger-full-access":
+            errs.append("normalized birth evidence declares forbidden policy")
+        if parsed.get("child_thread_created") is not False or parsed.get("delegation_used") is not False:
+            errs.append("normalized birth evidence must report no child thread or delegation")
+        events = parsed.get("session_birth_lines")
+        if not isinstance(events, list) or not events:
+            errs.append("normalized birth evidence requires observed session_birth_lines")
+            events = []
+    elif isinstance(parsed, dict):
+        events = [parsed]
+    elif parsed is not None:
+        return ["birth evidence must contain a normalized object or JSONL event objects"]
+    else:
+        events = []
+        for line_no, line in enumerate(text.splitlines(), 1):
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                errs.append(f"birth evidence JSONL line {line_no} is invalid")
+                continue
+            events.append(event)
+
+    observed = 0
+    for line_no, event in enumerate(events, 1):
+        if not isinstance(event, dict):
+            errs.append(f"birth evidence event {line_no} must be an object")
+            continue
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        for name, expected in (("thread_id", expected_thread), ("provider", expected_provider)):
+            identities = [record[name] for record in (event, payload) if name in record]
+            if any(value != expected for value in identities):
+                errs.append(f"birth evidence {name} mismatch in event {line_no}")
+            if not normalized and event.get("type") == "turn_context" and not identities:
+                errs.append(f"birth evidence {name} missing from turn_context event {line_no}")
+        if event.get("type") == "response_item" and payload.get("type") in {"function_call", "function_call_output"} and payload.get("name") in {"create_thread", "fork_thread"}:
+            errs.append(f"child thread birth detected in birth evidence event {line_no}")
+        if event.get("type") == "turn_context":
+            observed += 1
+            sandbox = payload.get("sandbox_policy")
+            sandbox_type = sandbox.get("type") if isinstance(sandbox, dict) else sandbox
+            if payload.get("approval_policy") != "never" or sandbox_type != "danger-full-access":
+                errs.append(f"birth evidence turn_context event {line_no} has forbidden or missing policy")
+    if not observed:
+        errs.append("birth evidence lacks an observed turn_context event")
+    return errs
+
+
 def validate_turn_chain(root: Path, turn_schema: dict, chain_schema: dict, launch_schema: dict, adoption: dict, plan: dict, index: dict, checkpoint_schema: dict | None = None) -> list[str]:
     errors=[]
     def err(msg: str): errors.append(msg)
-    if checkpoint_schema is None:
+    if checkpoint_schema is None and index.get("schema") != "flyby/source-review-turn-chain-index/2":
         for cand in [
             root / "schemas" / "SOURCE_REVIEW_CHECKPOINT_SCHEMA.json",
             root / "control" / "revisions" / "PROVENANCE_EXPANSION_20260901" / "SOURCE_REVIEW_CHECKPOINT_SCHEMA.json"
@@ -277,6 +365,100 @@ def validate_turn_chain(root: Path, turn_schema: dict, chain_schema: dict, launc
                 except Exception:
                     pass
     for e in validate_schema(index,chain_schema,chain_schema): err(f"chain-index schema: {e}")
+
+    # Index version, rather than a caller-supplied adoption argument, chooses
+    # the contract.  The old index remains compatible with legacy callers that
+    # never materialized an adoption file; a readable v3 adoption cannot be
+    # treated as v2 under that old index.
+    declared_version = adoption.get("turn_contract_version") if isinstance(adoption, dict) else None
+    v2_versions = (None, "flyby/source-review-turn-contract/2", "flyby/source-review-turn-contract/2.1")
+    v3_version = "flyby/source-review-turn-contract/3"
+    v3_adoption_schema = "flyby/source-review-turn-contract-adoption/2"
+    index_version = index.get("schema")
+    if index_version == "flyby/source-review-turn-chain-index/1":
+        contract_version = 2
+    elif index_version == "flyby/source-review-turn-chain-index/2":
+        contract_version = 3
+    else:
+        contract_version = 0
+        err(f"unsupported turn chain index version: {index_version!r}")
+    if declared_version not in v2_versions and declared_version != v3_version:
+        err(f"unsupported turn contract version: {declared_version!r}")
+
+    if contract_version == 2:
+        if declared_version not in v2_versions or (isinstance(adoption, dict) and adoption.get("schema") == v3_adoption_schema):
+            err("legacy chain index cannot use a v3 adoption")
+        try:
+            legacy_adoption_path = safe_ref(root, index.get("adoption_ref"))
+            if legacy_adoption_path.is_file():
+                disk_adoption = json.loads(legacy_adoption_path.read_text(encoding="utf-8"))
+                if isinstance(disk_adoption, dict) and (disk_adoption.get("schema") == v3_adoption_schema or disk_adoption.get("turn_contract_version") == v3_version):
+                    err("legacy chain index references a v3 adoption on disk")
+        except (OSError, ValueError, UnicodeError):
+            # Historic v2 callers did not require a materialized adoption file.
+            pass
+
+    if contract_version == 3:
+        if declared_version != v3_version:
+            err("v3 chain index requires version 3 adoption")
+        if not isinstance(adoption, dict) or adoption.get("schema") != v3_adoption_schema:
+            err("v3 turn contract requires a version 2 adoption record")
+        try:
+            adoption_path = safe_ref(root, index.get("adoption_ref"))
+            if not adoption_path.is_file():
+                err("v3 adoption file missing")
+            else:
+                if file_sha256(adoption_path) != index.get("adoption_sha256"):
+                    err("v3 adoption file hash drift")
+                loaded_adoption = json.loads(adoption_path.read_text(encoding="utf-8"))
+                if loaded_adoption != adoption:
+                    err("v3 adoption content differs from the supplied adoption")
+        except Exception as exc:
+            err(f"v3 adoption ref or contents invalid: {exc}")
+
+        # Schema IDs alone are not sufficient: bind the exact adopted bytes,
+        # and ensure the supplied schema is the installed contract, not an
+        # alternate schema with a permissive implementation of that ID.
+        def verify_v3_schema(prefix: str, supplied: dict, filename: str) -> None:
+            try:
+                schema_path = safe_ref(root, adoption.get(f"{prefix}_ref"))
+                if not schema_path.is_file():
+                    err(f"v3 adopted {prefix} file missing")
+                    return
+                if file_sha256(schema_path) != adoption.get(f"{prefix}_sha256"):
+                    err(f"v3 adopted {prefix} file hash drift")
+                adopted_schema = json.loads(schema_path.read_text(encoding="utf-8"))
+                if adopted_schema != supplied:
+                    err(f"v3 adopted {prefix} differs from supplied schema")
+                installed_path = Path(__file__).resolve().parent.parent / "schemas" / filename
+                installed_schema = json.loads(installed_path.read_text(encoding="utf-8"))
+                if supplied != installed_schema:
+                    err(f"v3 supplied {prefix} differs from installed schema")
+            except Exception as exc:
+                err(f"v3 adopted {prefix} ref or contents invalid: {exc}")
+
+        for prefix, supplied, filename in (
+            ("turn_contract_schema", turn_schema, "SOURCE_REVIEW_TURN_CONTRACT_V3_SCHEMA.json"),
+            ("turn_chain_index_schema", chain_schema, "SOURCE_REVIEW_TURN_CHAIN_INDEX_V2_SCHEMA.json"),
+            ("launch_receipt_schema", launch_schema, "DIRECT_LAUNCH_RECEIPT_SCHEMA.json"),
+        ):
+            verify_v3_schema(prefix, supplied, filename)
+
+        checkpoint_schema_checked = False
+        def ensure_v3_checkpoint_schema() -> None:
+            nonlocal checkpoint_schema, checkpoint_schema_checked
+            if checkpoint_schema_checked:
+                return
+            checkpoint_schema_checked = True
+            if checkpoint_schema is None:
+                try:
+                    path = safe_ref(root, adoption.get("checkpoint_schema_ref"))
+                    checkpoint_schema = json.loads(path.read_text(encoding="utf-8"))
+                except Exception as exc:
+                    err(f"v3 checkpoint schema required when checkpoints are present: {exc}")
+                    return
+            verify_v3_schema("checkpoint_schema", checkpoint_schema, "SOURCE_REVIEW_CHECKPOINT_V2_SCHEMA.json")
+
     phases={}
     for rc in plan.get("round_contracts",[]):
         if not isinstance(rc,dict): continue
@@ -334,7 +516,8 @@ def validate_turn_chain(root: Path, turn_schema: dict, chain_schema: dict, launc
         post_keys.append((sid,gen)); post_threads.append(generation.get("thread_id"))
         if source is None: err(f"post-enforcement generation references unknown source {sid}"); continue
         owner=owner_by.get(sid,{})
-        if owner.get("envelope_regime")!="POST_ENFORCEMENT_V2": err(f"post-enforcement generation not active in owner map for {sid}")
+        expected_regime = "POST_ENFORCEMENT_V3" if contract_version == 3 else "POST_ENFORCEMENT_V2"
+        if owner.get("envelope_regime") != expected_regime: err(f"post-enforcement generation not active in owner map for {sid}")
         if generation.get("thread_id")!=source.get("thread") or generation.get("thread_id")!=owner.get("active_thread") or gen!=owner.get("active_generation"): err(f"post-enforcement generation active custody mismatch for {sid}")
         if generation.get("thread_id") in retired_set: err(f"post-enforcement generation uses tombstoned thread for {sid}")
         if generation.get("source_ref")!=expected_source_ref(source): err(f"post-enforcement source_ref mismatch for {sid}")
@@ -353,6 +536,8 @@ def validate_turn_chain(root: Path, turn_schema: dict, chain_schema: dict, launc
                 if file_sha256(launch_path)!=generation.get("launch_receipt_sha256"): err(f"launch receipt file hash drift for {sid}")
                 try: launch_receipt=json.loads(launch_path.read_text(encoding="utf-8"))
                 except Exception as exc: err(f"launch receipt unreadable for {sid}: {exc}"); launch_receipt=None
+                if contract_version == 3 and not isinstance(launch_receipt, dict):
+                    err(f"launch receipt payload must be an object for {sid}")
                 if isinstance(launch_receipt,dict):
                     for e in validate_schema(launch_receipt,launch_schema,launch_schema): err(f"launch receipt schema {sid}: {e}")
                     if launch_receipt.get("receipt_sha256")!=launch_receipt_hash(launch_receipt): err(f"launch receipt self-hash mismatch for {sid}")
@@ -386,11 +571,13 @@ def validate_turn_chain(root: Path, turn_schema: dict, chain_schema: dict, launc
                         if not birth_path.is_file(): err(f"session birth evidence missing for {sid}: {launch_receipt.get('session_birth_evidence_ref')}")
                         else:
                             if file_sha256(birth_path)!=launch_receipt.get("session_birth_evidence_sha256"): err(f"session birth evidence file hash drift for {sid}")
-                            for be in parse_and_validate_birth_evidence(birth_path, generation.get("thread_id"), generation.get("provider")):
+                            birth_validator = parse_and_validate_v3_birth_evidence if contract_version == 3 else parse_and_validate_birth_evidence
+                            for be in birth_validator(birth_path, generation.get("thread_id"), generation.get("provider")):
                                 err(f"session birth evidence {sid}: {be}")
         critical=generation.get("critical_partitions",[])
         if generation.get("critical_partition_manifest_sha256")!=canonical_sha256(critical): err(f"critical partition manifest hash drift for {sid}")
         gen_checkpoints = generation.get("checkpoints", []) if isinstance(generation.get("checkpoints"), list) else []
+        if contract_version == 3 and gen_checkpoints: ensure_v3_checkpoint_schema()
         last_seq = 0
         prior_checkpoint_data = None
         prior_checkpoint_sha = None
@@ -407,6 +594,9 @@ def validate_turn_chain(root: Path, turn_schema: dict, chain_schema: dict, launc
                 if file_sha256(c_path) != c_entry.get("sha256"): err(f"generation checkpoint file hash drift for {sid}: {c_entry.get('ref')}")
                 try: c_data = json.loads(c_path.read_text(encoding="utf-8"))
                 except Exception as exc: err(f"generation checkpoint unreadable for {sid}: {exc}"); continue
+                if contract_version == 3 and not isinstance(c_data, dict):
+                    err(f"generation checkpoint payload must be an object for {sid}: {c_entry.get('ref')}")
+                    continue
                 if isinstance(c_data, dict):
                     if c_data.get("checkpoint_sequence") != c_seq:
                         err(f"generation checkpoint sequence in payload ({c_data.get('checkpoint_sequence')}) != index ({c_seq}) for {sid}")
@@ -433,6 +623,9 @@ def validate_turn_chain(root: Path, turn_schema: dict, chain_schema: dict, launc
             try: envelope=json.loads(turn_path.read_text(encoding="utf-8"))
             except Exception as exc: err(f"turn envelope unreadable for {sid}: {exc}"); continue
             for e in validate_schema(envelope,turn_schema,turn_schema): err(f"turn envelope schema {sid}/{turn_rec.get('turn_number')}: {e}")
+            expected_turn_version = v3_version if contract_version == 3 else "flyby/source-review-turn-contract/2.1"
+            if envelope.get("contract_version") != expected_turn_version:
+                err(f"turn contract version mismatch for {sid} turn {turn_rec.get('turn_number')}: expected {expected_turn_version}")
             if envelope.get("turn_sha256")!=envelope_hash(envelope): err(f"turn_sha256 mismatch for {sid} turn {turn_rec.get('turn_number')}")
             if envelope.get("adoption_sha256")!=index.get("adoption_sha256"): err(f"turn adoption hash mismatch for {sid} turn {turn_rec.get('turn_number')}")
             sb=envelope.get("source_binding",{})
@@ -461,7 +654,10 @@ def validate_turn_chain(root: Path, turn_schema: dict, chain_schema: dict, launc
                                 if launch_receipt.get("turn_1_prompt_ref")!=tm.get("instruction_ref") or launch_receipt.get("turn_1_prompt_sha256")!=tm.get("instruction_sha256"): err(f"turn-1 instruction does not match launch receipt for {sid}")
                         else:
                             if str(generation.get("thread_id")) not in instruction_text or str(prior_hash) not in instruction_text: err(f"instruction lacks exact thread/predecessor binding for {sid} turn {num}")
-            expected_phase="EXHAUSTIVE_DISCOVERY" if num==1 else "OMISSION_AND_ADVERSARIAL_CHALLENGE" if num==2 else "TARGET_INTEGRATION_DEEPENING" if num==3 else "ADAPTIVE_CONTINUATION"
+            if contract_version == 3:
+                expected_phase = "EVIDENCE_ASSESSMENT" if num == 1 else "EVIDENCE_CONTINUATION"
+            else:
+                expected_phase = "EXHAUSTIVE_DISCOVERY" if num == 1 else "OMISSION_AND_ADVERSARIAL_CHALLENGE" if num == 2 else "TARGET_INTEGRATION_DEEPENING" if num == 3 else "ADAPTIVE_CONTINUATION"
             if phase!=expected_phase: err(f"turn phase sequence mismatch for {sid} turn {num}: expected {expected_phase}")
             if num==1:
                 if tm.get("prior_turn_sha256") is not None: err(f"turn 1 prior_turn_sha256 must be null for {sid}")
@@ -474,6 +670,7 @@ def validate_turn_chain(root: Path, turn_schema: dict, chain_schema: dict, launc
                 if not evidence_path.is_file(): err(f"turn evidence missing for {sid} turn {num}")
                 elif file_sha256(evidence_path)!=evidence.get("sha256"): err(f"turn evidence hash drift for {sid} turn {num}")
             env_checkpoints = evidence.get("checkpoints", []) if isinstance(evidence.get("checkpoints"), list) else []
+            if contract_version == 3 and env_checkpoints: ensure_v3_checkpoint_schema()
             for c_entry in env_checkpoints:
                 if not isinstance(c_entry, dict): continue
                 c_seq = c_entry.get("checkpoint_sequence")
@@ -490,6 +687,9 @@ def validate_turn_chain(root: Path, turn_schema: dict, chain_schema: dict, launc
                     if file_sha256(c_path) != c_entry.get("checkpoint_sha256"): err(f"turn {num} checkpoint file hash drift for {sid}: {c_entry.get('checkpoint_ref')}")
                     try: c_data = json.loads(c_path.read_text(encoding="utf-8"))
                     except Exception as exc: err(f"turn {num} checkpoint unreadable for {sid}: {exc}"); continue
+                    if contract_version == 3 and not isinstance(c_data, dict):
+                        err(f"turn {num} checkpoint payload must be an object for {sid}: {c_entry.get('checkpoint_ref')}")
+                        continue
                     if isinstance(c_data, dict):
                         if c_data.get("checkpoint_sequence") != c_seq:
                             err(f"turn {num} checkpoint sequence in payload ({c_data.get('checkpoint_sequence')}) != envelope ({c_seq}) for {sid}")
@@ -518,6 +718,28 @@ def validate_turn_chain(root: Path, turn_schema: dict, chain_schema: dict, launc
                     if isinstance(loc,dict) and locator_key(loc) not in inspected_keys: err(f"contribution locator was not inspected for {sid} turn {num}")
             covered=set(payload.get("covered_critical_partitions",[])); uninspected=set(payload.get("uninspected_critical_partitions",[])); critical_set=set(critical)
             if covered|uninspected != critical_set or covered & uninspected: err(f"critical partition accounting mismatch for {sid} turn {num}")
+            if contract_version == 3:
+                # Bind each declared covered partition to the locators this
+                # turn actually inspected, rather than accepting coverage as
+                # an unconnected list of names.
+                partition_evidence = payload.get("partition_evidence", [])
+                rows = partition_evidence if isinstance(partition_evidence, list) else []
+                mapped = []
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    partition = row.get("partition")
+                    if isinstance(partition, str):
+                        mapped.append(partition)
+                    locators = row.get("inspected_locators")
+                    if not isinstance(locators, list) or not locators:
+                        err(f"partition evidence lacks inspected locators for {sid} turn {num}: {partition}")
+                        continue
+                    for locator in locators:
+                        if not isinstance(locator, dict) or locator_key(locator) not in inspected_keys:
+                            err(f"partition evidence locator was not inspected for {sid} turn {num}: {partition}")
+                if len(mapped) != len(rows) or len(mapped) != len(set(mapped)) or set(mapped) != covered:
+                    err(f"covered partition evidence mapping mismatch for {sid} turn {num}")
             disposition=payload.get("disposition_status"); final_disposition=disposition
             if disposition=="CONVERGED":
                 if tm.get("phase_authorization")!="CONVERGENCE_PERMITTED_IF_EXHAUSTED": err(f"forbidden-phase convergence for {sid} turn {num}")

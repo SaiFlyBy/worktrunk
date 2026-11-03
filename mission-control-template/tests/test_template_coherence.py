@@ -132,7 +132,14 @@ class TemplateCoherenceSuite(unittest.TestCase):
         self.assertEqual([], mc.validate_schema_instance(source_review, source_review_schema, source_review_schema, schema_path=ROOT / "schemas" / "SOURCE_INDEPENDENT_REVIEW_SCHEMA.json"))
         self.assertEqual([], mc.validate_schema_instance(sources, mc.load_json(ROOT / "schemas" / "SOURCE_REGISTRY_SCHEMA.json"), mc.load_json(ROOT / "schemas" / "SOURCE_REGISTRY_SCHEMA.json"), schema_path=ROOT / "schemas" / "SOURCE_REGISTRY_SCHEMA.json"))
         self.assertEqual([], mc.validate_schema_instance(corpus, mc.load_json(ROOT / "schemas" / "TARGET_CORPUS_SCHEMA.json"), mc.load_json(ROOT / "schemas" / "TARGET_CORPUS_SCHEMA.json"), schema_path=ROOT / "schemas" / "TARGET_CORPUS_SCHEMA.json"))
-        self.assertEqual([], mc.validate_schema_instance(provenance, mc.load_json(ROOT / "schemas" / "PROVENANCE_SYNTHESIS_SCHEMA.json"), mc.load_json(ROOT / "schemas" / "PROVENANCE_SYNTHESIS_SCHEMA.json"), schema_path=ROOT / "schemas" / "PROVENANCE_SYNTHESIS_SCHEMA.json"))
+        legacy_schema_path = ROOT / "tests" / "fixtures" / "PROVENANCE_SYNTHESIS_V16_SCHEMA.json"
+        legacy_schema = mc.load_json(legacy_schema_path)
+        self.assertEqual([], mc.validate_schema_instance(provenance, legacy_schema, legacy_schema, schema_path=legacy_schema_path))
+        current_path = ROOT / "schemas" / "PROVENANCE_SYNTHESIS_SCHEMA.json"
+        current_schema = mc.load_json(current_path)
+        current_provenance = mc.load_json(ROOT / "examples" / "reference-qualification-v17" / "PROVENANCE_SYNTHESIS.json")
+        self.assertEqual([], mc.validate_schema_instance(current_provenance, current_schema, current_schema, schema_path=current_path))
+        self.assertTrue(mc.validate_schema_instance(provenance, current_schema, current_schema, schema_path=current_path))
         self.assertEqual([], mc.validate_schema_instance(workspace, mc.load_json(ROOT / "schemas" / "WORKSPACE_RECONCILIATION_SCHEMA.json"), mc.load_json(ROOT / "schemas" / "WORKSPACE_RECONCILIATION_SCHEMA.json"), schema_path=ROOT / "schemas" / "WORKSPACE_RECONCILIATION_SCHEMA.json"))
         self.assertEqual([], mc.validate_schema_instance(workspace_ledger, mc.load_json(ROOT / "schemas" / "WORKSPACE_LEDGER_SCHEMA.json"), mc.load_json(ROOT / "schemas" / "WORKSPACE_LEDGER_SCHEMA.json"), schema_path=ROOT / "schemas" / "WORKSPACE_LEDGER_SCHEMA.json"))
         mission_targets = {target["repository"] for target in mission["target_repositories"]}
@@ -294,6 +301,10 @@ class TemplateCoherenceSuite(unittest.TestCase):
 
 
     def test_11_source_review_turn_contract_example_is_valid(self) -> None:
+        template = mc.load_json(ROOT / "TEMPLATE.json")
+        self.assertEqual("schemas/SOURCE_REVIEW_TURN_CONTRACT_V3_SCHEMA.json", template["source_review_turn_contract_schema"])
+        self.assertEqual("schemas/SOURCE_REVIEW_TURN_CHAIN_INDEX_V2_SCHEMA.json", template["source_review_turn_chain_index_schema"])
+        self.assertEqual("schemas/SOURCE_REVIEW_CHECKPOINT_V2_SCHEMA.json", template["source_review_checkpoint_schema"])
         schema = mc.load_json(ROOT / "schemas" / "SOURCE_REVIEW_TURN_CONTRACT_SCHEMA.json")
         instance = mc.load_json(ROOT / "examples" / "reference-mission" / "SOURCE_REVIEW_TURN.json")
         self.assertEqual([], mc.validate_schema_instance(instance, schema, schema, schema_path=ROOT / "schemas" / "SOURCE_REVIEW_TURN_CONTRACT_SCHEMA.json"))
@@ -314,7 +325,7 @@ class TemplateCoherenceSuite(unittest.TestCase):
             "MISSION_SCHEMA.json", "TEMPLATE_LOCK_SCHEMA.json", "CURRENT_AUTHORITY_SCHEMA.json",
             "EXECUTION_DAG_SCHEMA.json", "EXECUTION_STATE_SCHEMA.json", "COMPILER_CONTROL_SCHEMA.json",
             "WORKCELL_SCHEMA.json", "RESULT_SCHEMA.json", "ADJUDICATION_SCHEMA.json", "TARGET_CORPUS_SCHEMA.json", "SOURCE_REGISTRY_SCHEMA.json",
-            "PROVENANCE_SYNTHESIS_SCHEMA.json", "SOURCE_INDEPENDENT_REVIEW_SCHEMA.json", "TASK_PIPELINE_SCHEMA.json", "SOURCE_REVIEW_TURN_CONTRACT_SCHEMA.json", "SOURCE_REVIEW_TURN_CHAIN_INDEX_SCHEMA.json", "SOURCE_REVIEW_CHECKPOINT_SCHEMA.json", "SOURCE_REVIEW_CLEANUP_SCHEMA.json", "WORKSPACE_RECONCILIATION_SCHEMA.json", "SUPERSESSION_RECORD_SCHEMA.json", "WORKSPACE_LEDGER_SCHEMA.json",
+            "PROVENANCE_SYNTHESIS_SCHEMA.json", "SOURCE_INDEPENDENT_REVIEW_SCHEMA.json", "TASK_PIPELINE_SCHEMA.json", "SOURCE_REVIEW_TURN_CONTRACT_SCHEMA.json", "SOURCE_REVIEW_TURN_CONTRACT_V3_SCHEMA.json", "SOURCE_REVIEW_TURN_CHAIN_INDEX_SCHEMA.json", "SOURCE_REVIEW_TURN_CHAIN_INDEX_V2_SCHEMA.json", "SOURCE_REVIEW_CHECKPOINT_SCHEMA.json", "SOURCE_REVIEW_CHECKPOINT_V2_SCHEMA.json", "SOURCE_REVIEW_CLEANUP_SCHEMA.json", "WORKSPACE_RECONCILIATION_SCHEMA.json", "SUPERSESSION_RECORD_SCHEMA.json", "WORKSPACE_LEDGER_SCHEMA.json",
             "CONTEXT_RECEIPT_SCHEMA.json", "SESSION_RESIDENCY_REGISTRY_SCHEMA.json",
             "QUALIFICATION_SCHEMA.json", "CLOSURE_SCHEMA.json",
         )

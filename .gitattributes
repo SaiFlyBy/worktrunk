@@ -45,3 +45,4 @@ tests/fixtures/*/_git/index binary
 
 # Mission Control reference evidence is hash-bound to LF bytes.
 mission-control-template/examples/reference-mission/** text eol=lf
+mission-control-template/examples/reference-qualification-v17/** text eol=lf

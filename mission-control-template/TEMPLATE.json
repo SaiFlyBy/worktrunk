@@ -55,9 +55,9 @@
   "workspace_reconciliation_policy": "policies/WORKSPACE_RECONCILIATION.md",
   "workspace_ledger_schema": "schemas/WORKSPACE_LEDGER_SCHEMA.json",
   "source_use_policy": "RIGHTS_AWARE_FULL_POTENTIAL_SYNTHESIS",
-  "source_review_turn_contract_schema": "schemas/SOURCE_REVIEW_TURN_CONTRACT_SCHEMA.json",
-  "source_review_turn_chain_index_schema": "schemas/SOURCE_REVIEW_TURN_CHAIN_INDEX_SCHEMA.json",
+  "source_review_turn_contract_schema": "schemas/SOURCE_REVIEW_TURN_CONTRACT_V3_SCHEMA.json",
+  "source_review_turn_chain_index_schema": "schemas/SOURCE_REVIEW_TURN_CHAIN_INDEX_V2_SCHEMA.json",
   "source_review_direct_launch_receipt_schema": "schemas/DIRECT_LAUNCH_RECEIPT_SCHEMA.json",
-  "source_review_checkpoint_schema": "schemas/SOURCE_REVIEW_CHECKPOINT_SCHEMA.json",
+  "source_review_checkpoint_schema": "schemas/SOURCE_REVIEW_CHECKPOINT_V2_SCHEMA.json",
   "source_review_cleanup_schema": "schemas/SOURCE_REVIEW_CLEANUP_SCHEMA.json"
 }

@@ -68,7 +68,7 @@ A repository is not exhausted because its README, architecture document, or main
 5. tests/CI/benchmarks/examples/release machinery reviewed for mechanisms not obvious in production code;
 6. unresolved high-value questions closed or represented as blockers;
 7. all discovered mechanisms accounted by the engineering ledger;
-8. independent review challenges coverage and omissions;
+8. independent review assesses coverage and material omissions against the evidence;
 9. source-local terminal receipt binds exact surface-map and mechanism-ledger digests.
 
 Large repositories use bounded tranches and durable checkpoints; exhaustion is accumulated, never inferred from context-window confidence.
@@ -87,7 +87,7 @@ Every mechanism entry records at least:
 - current-target owner and inspected locations;
 - target disposition and implementation/reuse mode;
 - proposed/landed implementation locations;
-- positive, negative, hostile and compatibility verification;
+- positive, negative, hostile-input and compatibility verification, as applicable to the material behavior and risk;
 - failure modes and recovery/rollback;
 - observability/diagnostics;
 - security/privacy/trust-boundary impact;
