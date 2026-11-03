@@ -2236,6 +2236,33 @@ def _template_provenance(template_root: Path) -> dict[str, str | None]:
         base_commit = commit_proc.stdout.strip()
         if len(base_commit) != 40:
             raise ValueError("git HEAD is not a 40-character object id")
+        # A portable template may be extracted inside an unrelated or ignored
+        # Git worktree. Do not attribute its bytes to that enclosing commit.
+        repo_proc = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"], cwd=template_root,
+            check=True, capture_output=True, text=True,
+        )
+        repo_root = Path(repo_proc.stdout.strip()).resolve()
+        sources = [template_root / "TEMPLATE.json"] + [
+            source for source, _ in _template_asset_pairs(template_root, template_root)
+        ]
+        relative_sources = [source.resolve().relative_to(repo_root).as_posix() for source in sources]
+        tracked_proc = subprocess.run(
+            ["git", "ls-files", "--cached", "--full-name", "-v", "-z", "--", *relative_sources],
+            cwd=repo_root, check=True, capture_output=True,
+        )
+        tracked: dict[str, str] = {}
+        for entry in tracked_proc.stdout.split(b"\0"):
+            if not entry:
+                continue
+            if len(entry) < 3 or entry[1:2] != b" ":
+                raise ValueError("unexpected git index entry")
+            tracked[entry[2:].decode("utf-8", errors="strict")] = chr(entry[0])
+        if relative_sources[0] not in tracked:
+            return {"template_source_state": "UNVERSIONED", "template_commit": None, "template_base_commit": None}
+        # Git status may intentionally skip files marked assume-unchanged or
+        # skip-worktree. Such a checkout cannot prove its copied bytes clean.
+        hidden_by_index = any(flag.islower() or flag.upper() == "S" for flag in tracked.values())
         status_proc = subprocess.run(
             ["git", "status", "--porcelain", "--untracked-files=all", "--", "."],
             cwd=template_root,
@@ -2243,7 +2270,7 @@ def _template_provenance(template_root: Path) -> dict[str, str | None]:
             capture_output=True,
             text=True,
         )
-        if status_proc.stdout.strip():
+        if status_proc.stdout.strip() or hidden_by_index or not set(relative_sources).issubset(tracked):
             return {
                 "template_source_state": "DIRTY_WORKTREE",
                 "template_commit": None,

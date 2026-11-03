@@ -18,6 +18,10 @@ ci = "github"
 installers = ["shell", "powershell"]
 # Target platforms to build apps for (Rust target-triple syntax)
 targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-musl", "x86_64-unknown-linux-musl", "x86_64-pc-windows-msvc"]
+# Staged from committed inputs by dev/stage-mission-control.ps1.
+# The generated script installers still install binaries only; the full archive
+# contains the Mission Control template and its attribution.
+include = ["target/flyby-dist/flyby-integration"]
 # Whether to install an updater program
 install-updater = false
 # Allow fork-specific CI modifications to the generated release workflow
@@ -25,4 +29,4 @@ allow-dirty = ["ci"]
 # Enable git-wt binary in release builds (opt-in for cargo install)
 features = ["git-wt"]
 # Custom success message prompting shell integration
-install-success-msg = "Run 'wt config shell install' for shell integration."
+install-success-msg = "Run 'wt config shell install' for shell integration. For Mission Control, extract the full release archive."

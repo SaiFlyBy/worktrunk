@@ -4,8 +4,11 @@ This fork includes Mission Control v16 and a bridge that creates a Worktrunk
 worktree for one compiled mutation cell. Python 3 and Worktrunk 0.81.0 or
 newer must be available. Initialize and compile a mission with the normal
 [Mission Control operator commands](README.md) first. Keep a matching
-source checkout available: the standalone Worktrunk binary archives and
-installers do not currently include the Mission Control Python/template files.
+source checkout available, or extract the full platform release archive. The
+archive includes `flyby-integration/mission-control-template` and the associated
+attribution. The standalone shell and PowerShell installers install Worktrunk
+binaries only; they do not install Mission Control. On Windows, pass the full
+path to the archive's `wt.exe` with `--wt` if Windows Terminal owns `wt`.
 
 Once the cell is compiled, create its workspace and assign separate worker and
 verifier identities:
