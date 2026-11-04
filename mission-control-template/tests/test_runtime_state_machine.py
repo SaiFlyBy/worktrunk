@@ -14,6 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_MC = ROOT / "tools" / "mc.py"
 EXAMPLE = ROOT / "examples" / "reference-mission"
+QUALIFICATION_EXAMPLE = ROOT / "examples" / "reference-qualification-v17"
 BASELINE = ("A000", "A001", "A002", "A003", "A004")
 
 
@@ -50,9 +51,10 @@ class RuntimeStateMachineSuite(unittest.TestCase):
         self.source("init", "--mission", self.root / "MISSION.json")
         if (EXAMPLE / "evidence").is_dir():
             shutil.copytree(EXAMPLE / "evidence", self.root / "evidence", dirs_exist_ok=True)
+        shutil.copytree(QUALIFICATION_EXAMPLE / "evidence", self.root / "evidence", dirs_exist_ok=True)
         self.runtime = self.root / "runtime" / "tools" / "mc.py"
         self.mc("sources", "load", "--root", self.root, "--file", EXAMPLE / "SOURCES.json")
-        self.mc("provenance", "load", "--root", self.root, "--file", EXAMPLE / "PROVENANCE_SYNTHESIS.json")
+        self.mc("provenance", "load", "--root", self.root, "--file", QUALIFICATION_EXAMPLE / "PROVENANCE_SYNTHESIS.json")
         self.mc("corpus", "load", "--root", self.root, "--file", EXAMPLE / "TARGET_CORPUS.json")
 
     def tearDown(self) -> None:
@@ -1325,7 +1327,7 @@ class RuntimeStateMachineSuite(unittest.TestCase):
         rejected = self.mc("corpus", "load", "--root", self.root, "--file", corpus_file, ok=False)
         self.assertIn("MC0351", rejected.stderr)
     def test_candidate9_rejected_mechanism_bidirectional_closure(self) -> None:
-        prov = json.loads((EXAMPLE / "PROVENANCE_SYNTHESIS.json").read_text(encoding="utf-8"))
+        prov = json.loads((QUALIFICATION_EXAMPLE / "PROVENANCE_SYNTHESIS.json").read_text(encoding="utf-8"))
         prov["mechanisms"][0]["disposition"] = "REJECTED"
         prov["mechanisms"][0]["rejection_reason"] = "Rejected during review"
         prov["mechanisms"][0]["target_requirements"] = ["REF-001"]
@@ -1340,7 +1342,7 @@ class RuntimeStateMachineSuite(unittest.TestCase):
         self.assertIn("MC0352", proc2.stderr)
 
     def test_candidate9_independent_review_receipt_and_custody_enforced(self) -> None:
-        prov = json.loads((EXAMPLE / "PROVENANCE_SYNTHESIS.json").read_text(encoding="utf-8"))
+        prov = json.loads((QUALIFICATION_EXAMPLE / "PROVENANCE_SYNTHESIS.json").read_text(encoding="utf-8"))
         prov["source_assessments"][0]["independent_review"]["reviewer"] = "reference-golden-reviewer"
         prov["source_assessments"][0]["independent_review"]["reviewer_identity"] = "reference-golden-reviewer"
         prov["source_assessments"][0]["independent_review"]["extractor_identity"] = "reference-golden-reviewer"

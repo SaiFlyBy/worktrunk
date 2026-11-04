@@ -77,6 +77,7 @@ jobs:
                'ProofRunnerContractSuite.test_03_command_timeout_is_terminal_and_hashed',
                'ProofRunnerContractSuite.test_06_fork_bridge_workflow_tests_current_source'],
               ['tests/test_runtime_state_machine.py'],
+              ['tests/test_evidence_based_source_qualification.py'],
               ['tests/test_wt_mission.py'],
           ]
           for command in commands:

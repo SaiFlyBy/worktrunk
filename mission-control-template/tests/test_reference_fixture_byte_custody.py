@@ -14,6 +14,7 @@ sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 REPO = ROOT.parent
 REF = ROOT / "examples" / "reference-mission"
+REF17 = ROOT / "examples" / "reference-qualification-v17"
 TOOLS = ROOT / "tools" / "source_review_turn_chain.py"
 sys.path.insert(0, str(ROOT / "tools"))
 
@@ -44,6 +45,8 @@ class ReferenceFixtureByteCustodySuite(unittest.TestCase):
             REF / "PROVENANCE_SYNTHESIS.json",
             REF / "SOURCE_REVIEW_TURN.json",
             REF / "evidence" / "REFERENCE_TURN_1_PROMPT.txt",
+            REF17 / "PROVENANCE_SYNTHESIS.json",
+            REF17 / "evidence" / "V17_SOURCE_QUALIFICATION.txt",
         ]
         for path in probes:
             rel = path.relative_to(REPO).as_posix()
@@ -71,6 +74,17 @@ class ReferenceFixtureByteCustodySuite(unittest.TestCase):
             self.assertEqual(review["review_sha256"], file_sha(REF / review["review_ref"]))
         cross = provenance["cross_source_synthesis"]
         self.assertEqual(cross["evidence_sha256"], file_sha(REF / cross["evidence_ref"]))
+
+    def test_03b_evidence_based_reference_binds_exact_bytes(self) -> None:
+        provenance = load_json(REF17 / "PROVENANCE_SYNTHESIS.json")
+        assessment = provenance["source_assessments"][0]
+        review = assessment["independent_review"]
+        self.assertEqual(review["review_sha256"], file_sha(REF17 / review["review_ref"]))
+        for record in assessment["deep_review"]["rounds"]:
+            self.assertEqual(record["evidence_sha256"], file_sha(REF17 / record["evidence_ref"]))
+        for path in REF17.rglob("*"):
+            if path.is_file():
+                self.assertNotIn(b"\r", path.read_bytes(), path.relative_to(REF17).as_posix())
 
     def test_04_direct_launch_receipt_binds_exact_prompt_and_birth_bytes(self) -> None:
         receipt_path = REF / "evidence" / "REFERENCE_DIRECT_LAUNCH_RECEIPT.json"

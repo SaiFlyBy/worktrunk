@@ -60,7 +60,7 @@ For source/research ingestion, the reusable MCV chain is:
 
 ```text
 Phase A: source-local construction / ingestion
-  -> Phase B: independent adversarial review under the mission-defined project workflow
+  -> Phase B: independent evidence review under the mission-defined project workflow
   -> Phase C: adjudication / final disposition topology chosen by mission policy
 ```
 

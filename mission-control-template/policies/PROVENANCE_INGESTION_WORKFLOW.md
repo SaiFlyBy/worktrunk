@@ -137,11 +137,11 @@ The source-owning reviewer must:
 
 Phase A fails if it only summarizes the source, samples representative features, or proposes shallow wrapper/stub integration.
 
-## Phase B — independent adversarial audit
+## Phase B — independent evidence review
 
-A different author/seat/session independently re-reads the canonical source and audits immutable Phase-A evidence.
+A different author/seat/session independently assesses the canonical source and immutable Phase-A evidence. Inspect or verify further where the scope, material claims, and risks justify it.
 
-Phase B actively tries to falsify the completeness claim. It looks for:
+Phase B assesses whether the evidence supports the claimed scope and disposition. As applicable, it examines:
 
 - skipped or collapsed mechanisms;
 - false target equivalence;

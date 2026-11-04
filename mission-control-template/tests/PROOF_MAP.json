@@ -21,6 +21,9 @@
     "source_surface_evidence_custody": {
       "unit_regression": ["tests/test_source_surface_evidence.py", "tests/test_engineering_contract_index.py"]
     },
+    "evidence_based_source_qualification": {
+      "e2e": ["tests/test_evidence_based_source_qualification.py"]
+    },
     "source_review_turn_chain_custody": {
       "unit_regression": ["tests/test_source_review_turn_chain.py", "tests/test_reference_fixture_byte_custody.py"]
     },

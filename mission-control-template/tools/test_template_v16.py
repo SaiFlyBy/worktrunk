@@ -15,6 +15,7 @@ from pathlib import Path
 TEMPLATE = Path(__file__).resolve().parents[1]
 SOURCE_MC = TEMPLATE / "tools" / "mc.py"
 EXAMPLE = TEMPLATE / "examples" / "reference-mission"
+QUALIFICATION_EXAMPLE = TEMPLATE / "examples" / "reference-qualification-v17"
 BASELINE = ("A000", "A001", "A002", "A003", "A004")
 
 
@@ -259,6 +260,9 @@ def main() -> int:
         run(str(SOURCE_MC), "init", "--mission", str(root / "MISSION.json"))
         runtime = root / "runtime" / "tools" / "mc.py"
         run(str(runtime), "doctor", "--root", str(root))
+        if (EXAMPLE / "evidence").is_dir():
+            shutil.copytree(EXAMPLE / "evidence", root / "evidence", dirs_exist_ok=True)
+        shutil.copytree(QUALIFICATION_EXAMPLE / "evidence", root / "evidence", dirs_exist_ok=True)
 
         prior_root = Path(tmp) / "mission-control-reference-prior"
         prior_root.mkdir()
@@ -299,14 +303,14 @@ def main() -> int:
         reference_only_payload["sources"][1]["copyright"]["usage_mode"] = "REFERENCE_ONLY"
         write_json(reference_only_sources, reference_only_payload)
         run(str(runtime), "sources", "load", "--root", str(root), "--file", str(reference_only_sources))
-        run_fail(str(runtime), "provenance", "load", "--root", str(root), "--file", str(EXAMPLE / "PROVENANCE_SYNTHESIS.json"))
+        assert "MC0291" in run_fail(str(runtime), "provenance", "load", "--root", str(root), "--file", str(QUALIFICATION_EXAMPLE / "PROVENANCE_SYNTHESIS.json")).stderr
         authority_only_sources = root / "sources-authority-only.json"
         authority_only_payload = json.loads((EXAMPLE / "SOURCES.json").read_text(encoding="utf-8"))
         authority_only_payload["sources"][1]["disposition"] = "AUTHORITY_ONLY"
         authority_only_payload["sources"][1]["copyright"]["usage_mode"] = "AUTHORITY_ONLY"
         write_json(authority_only_sources, authority_only_payload)
         run(str(runtime), "sources", "load", "--root", str(root), "--file", str(authority_only_sources))
-        run_fail(str(runtime), "provenance", "load", "--root", str(root), "--file", str(EXAMPLE / "PROVENANCE_SYNTHESIS.json"))
+        assert "MC0291" in run_fail(str(runtime), "provenance", "load", "--root", str(root), "--file", str(QUALIFICATION_EXAMPLE / "PROVENANCE_SYNTHESIS.json")).stderr
         moving_repo_sources = root / "sources-moving-repo-pin.json"
         moving_repo_payload = json.loads((EXAMPLE / "SOURCES.json").read_text(encoding="utf-8"))
         moving_repo_payload["sources"].append({
@@ -331,40 +335,38 @@ def main() -> int:
         # Still blocked before provenance load, then specifically blocked on the missing lineage requirement after provenance is valid below.
         run_fail(str(runtime), "corpus", "load", "--root", str(root), "--file", str(unbound_lineage_corpus))
         incomplete_provenance = root / "provenance-incomplete-coverage.json"
-        incomplete_payload = json.loads((EXAMPLE / "PROVENANCE_SYNTHESIS.json").read_text(encoding="utf-8"))
+        incomplete_payload = json.loads((QUALIFICATION_EXAMPLE / "PROVENANCE_SYNTHESIS.json").read_text(encoding="utf-8"))
         incomplete_payload["source_assessments"][0]["open_questions"] = ["unresolved material capability"]
         write_json(incomplete_provenance, incomplete_payload)
         run_fail(str(runtime), "provenance", "load", "--root", str(root), "--file", str(incomplete_provenance))
-        if (EXAMPLE / "evidence").is_dir():
-            shutil.copytree(EXAMPLE / "evidence", root / "evidence", dirs_exist_ok=True)
 
         shallow_multi_round = root / "provenance-shallow-multi-round.json"
-        shallow_payload = json.loads((EXAMPLE / "PROVENANCE_SYNTHESIS.json").read_text(encoding="utf-8"))
+        shallow_payload = json.loads((QUALIFICATION_EXAMPLE / "PROVENANCE_SYNTHESIS.json").read_text(encoding="utf-8"))
         shallow_payload["source_assessments"][0]["deep_review"]["strategy"] = "MULTI_ROUND_EXCORIATION"
         write_json(shallow_multi_round, shallow_payload)
         run_fail(str(runtime), "provenance", "load", "--root", str(root), "--file", str(shallow_multi_round))
         stale_review_provenance = root / "provenance-stale-review-digest.json"
-        stale_review_payload = json.loads((EXAMPLE / "PROVENANCE_SYNTHESIS.json").read_text(encoding="utf-8"))
+        stale_review_payload = json.loads((QUALIFICATION_EXAMPLE / "PROVENANCE_SYNTHESIS.json").read_text(encoding="utf-8"))
         stale_review_payload["source_assessments"][0]["coverage_items"][0]["rationale"] += " changed after review"
         write_json(stale_review_provenance, stale_review_payload)
         run_fail(str(runtime), "provenance", "load", "--root", str(root), "--file", str(stale_review_provenance))
         forged_review_hash = root / "provenance-forged-review-hash.json"
-        forged_review_payload = json.loads((EXAMPLE / "PROVENANCE_SYNTHESIS.json").read_text(encoding="utf-8"))
+        forged_review_payload = json.loads((QUALIFICATION_EXAMPLE / "PROVENANCE_SYNTHESIS.json").read_text(encoding="utf-8"))
         forged_review_payload["source_assessments"][0]["independent_review"]["review_sha256"] = "0" * 64
         write_json(forged_review_hash, forged_review_payload)
         run_fail(str(runtime), "provenance", "load", "--root", str(root), "--file", str(forged_review_hash))
         self_reviewed = root / "provenance-self-reviewed.json"
-        self_reviewed_payload = json.loads((EXAMPLE / "PROVENANCE_SYNTHESIS.json").read_text(encoding="utf-8"))
+        self_reviewed_payload = json.loads((QUALIFICATION_EXAMPLE / "PROVENANCE_SYNTHESIS.json").read_text(encoding="utf-8"))
         self_reviewed_payload["source_assessments"][0]["independent_review"]["reviewer"] = "reference-golden-reviewer"
         write_json(self_reviewed, self_reviewed_payload)
         run_fail(str(runtime), "provenance", "load", "--root", str(root), "--file", str(self_reviewed))
         rejected_mechanism = root / "provenance-rejected-mechanism-bound.json"
-        rejected_payload = json.loads((EXAMPLE / "PROVENANCE_SYNTHESIS.json").read_text(encoding="utf-8"))
+        rejected_payload = json.loads((QUALIFICATION_EXAMPLE / "PROVENANCE_SYNTHESIS.json").read_text(encoding="utf-8"))
         rejected_payload["mechanisms"][0]["disposition"] = "REJECTED"
         rejected_payload["mechanisms"][0]["rejection_reason"] = "hostile fixture rejects the mechanism but leaves target authority attached"
         write_json(rejected_mechanism, rejected_payload)
         run_fail(str(runtime), "provenance", "load", "--root", str(root), "--file", str(rejected_mechanism))
-        run(str(runtime), "provenance", "load", "--root", str(root), "--file", str(EXAMPLE / "PROVENANCE_SYNTHESIS.json"))
+        run(str(runtime), "provenance", "load", "--root", str(root), "--file", str(QUALIFICATION_EXAMPLE / "PROVENANCE_SYNTHESIS.json"))
         run_fail(str(runtime), "corpus", "load", "--root", str(root), "--file", str(unbound_lineage_corpus))
         hidden_source_corpus = root / "target-corpus-hidden-mechanism-source.json"
         hidden_source_payload = json.loads((EXAMPLE / "TARGET_CORPUS.json").read_text(encoding="utf-8"))

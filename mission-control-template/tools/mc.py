@@ -1325,6 +1325,7 @@ def _collect_v16_issues(root: Path) -> list[dict[str, str]]:
             for sid in mechanism.get("source_ids", []):
                 mechanisms_by_source.setdefault(str(sid), set()).add(str(mechanism.get("id")))
     source_records = {item.get("id"): item for item in sources if isinstance(item, dict)}
+    provenance_version = provenance_synthesis.get("schema")
     for assessment in source_assessments if isinstance(source_assessments, list) else []:
         if not isinstance(assessment, dict):
             continue
@@ -1356,26 +1357,54 @@ def _collect_v16_issues(root: Path) -> list[dict[str, str]]:
                     elif expected != sha256(evidence_path):
                         out.append(issue("MC0384", f"source assessment {sid} {label} hash drift", "adjudication evidence can change without invalidating authority", "bind the exact evidence sha256"))
         else:
-                    deep_review = assessment.get("deep_review", {})
-                    if not isinstance(deep_review, dict) or deep_review.get("state") != "COMPLETE":
-                        out.append(issue("MC0310", f"source assessment {sid} lacks COMPLETE deep review", "rights mode was incorrectly allowed to substitute for source understanding", "complete adaptive multi-round source review regardless of whether implementation reuse is allowed"))
-                    else:
-                        rounds = deep_review.get("rounds", [])
-                        minimum_rounds = deep_review.get("minimum_rounds")
-                        if deep_review.get("strategy") != "ADAPTIVE_MULTI_ROUND_EXCORIATION":
-                            out.append(issue("MC0311", f"source assessment {sid} does not use adaptive multi-round excoriation", "fixed/bounded review can stop while material source value remains unread", "use adaptive review with a minimum floor and no fixed maximum"))
-                        if not isinstance(minimum_rounds, int) or minimum_rounds < 3 or len(rounds) < minimum_rounds:
-                            out.append(issue("MC0312", f"source assessment {sid} completed fewer than its minimum deep-review rounds", "surface-level review can be mistaken for convergence", "run at least discovery, omission challenge and target-integration turns, then continue as needed"))
-                        round_numbers=[row.get("round") for row in rounds if isinstance(row,dict)] if isinstance(rounds,list) else []
-                        if round_numbers != list(range(1,len(rounds)+1)):
-                            out.append(issue("MC0354", f"source assessment {sid} deep-review rounds are duplicated, skipped, or reordered", "repeated/status-only rounds can inflate the review count without adding evidence", "number completed source-review rounds contiguously from 1 and preserve the exact evidence for each round"))
-                        convergence = deep_review.get("convergence", {})
-                        if not isinstance(convergence, dict) or convergence.get("material_omissions_remaining") is not False:
-                            out.append(issue("MC0313", f"source assessment {sid} deep review has unresolved material omissions", "the mission can promote while known source value remains unassessed", "continue the same source review thread until material omissions are exhausted"))
-                        if deep_review.get("uninspected_critical_partitions"):
-                            out.append(issue("MC0329", f"source assessment {sid} still has uninspected critical partitions", "turn count can falsely signal completion while important subsystems remain unread", "inspect every critical partition or explicitly remove it with evidence before convergence"))
-                        if not rounds or rounds[-1].get("disposition") != "COMPLETE":
-                            out.append(issue("MC0330", f"source assessment {sid} final round is not COMPLETE", "review trajectory has no explicit convergence event", "record a final same-thread completion turn after all material gaps close"))
+            deep_review = assessment.get("deep_review", {})
+            if not isinstance(deep_review, dict):
+                deep_review = {}
+            if deep_review.get("state") != "COMPLETE":
+                out.append(issue("MC0310", f"source assessment {sid} lacks COMPLETE source qualification", "rights mode was incorrectly allowed to substitute for source understanding", "complete the source assessment and preserve its evidence"))
+            else:
+                rounds = deep_review.get("rounds", [])
+                if not isinstance(rounds, list):
+                    rounds = []
+                if provenance_version == "flyby/mission-control-provenance-synthesis/16":
+                    minimum_rounds = deep_review.get("minimum_rounds")
+                    if deep_review.get("strategy") != "ADAPTIVE_MULTI_ROUND_EXCORIATION":
+                        out.append(issue("MC0311", f"source assessment {sid} does not use the legacy review strategy", "the evidence does not meet the mission's frozen legacy contract", "retain the strategy required by the legacy contract"))
+                    if not isinstance(minimum_rounds, int) or minimum_rounds < 3 or len(rounds) < minimum_rounds:
+                        out.append(issue("MC0312", f"source assessment {sid} completed fewer than its legacy minimum review rounds", "legacy evidence does not meet its frozen qualification contract", "complete the review required by the legacy mission"))
+                elif provenance_version == "flyby/mission-control-provenance-synthesis/17":
+                    if deep_review.get("strategy") != "EVIDENCE_BASED_QUALIFICATION":
+                        out.append(issue("MC0311", f"source assessment {sid} does not use evidence-based qualification", "the assessment uses a different contract than its declared version", "record the qualification required by this mission's contract"))
+                    if not rounds:
+                        out.append(issue("MC0312", f"source assessment {sid} has no evidence-backed qualification", "an unexamined source can be treated as qualified", "record at least one assessment with its exact evidence"))
+                    for row in rounds:
+                        if not isinstance(row, dict):
+                            continue
+                        ref, expected = row.get("evidence_ref"), row.get("evidence_sha256")
+                        if not isinstance(ref, str) or not ref:
+                            out.append(issue("MC0390", f"source assessment {sid} qualification lacks an evidence ref", "the assessment cannot be inspected", "record a mission-local evidence ref and sha256"))
+                            continue
+                        try:
+                            evidence_path = resolve_ref(root, ref)
+                        except Exception as exc:
+                            out.append(issue("MC0391", f"source assessment {sid} evidence ref invalid: {exc}", "qualification evidence escaped mission custody", "use a mission-local evidence path"))
+                            continue
+                        if not evidence_path.is_file():
+                            out.append(issue("MC0392", f"source assessment {sid} qualification evidence missing: {ref}", "a locator was treated as evidence", "materialize the exact assessment evidence"))
+                        elif expected != sha256(evidence_path):
+                            out.append(issue("MC0393", f"source assessment {sid} qualification evidence hash drift: {ref}", "qualification evidence can change without invalidating review", "bind the exact assessment evidence sha256"))
+                else:
+                    out.append(issue("MC0394", f"source assessment {sid} has unknown provenance contract {provenance_version}", "unknown qualification rules cannot grant source authority", "use a supported provenance contract"))
+                round_numbers = [row.get("round") for row in rounds if isinstance(row, dict)]
+                if round_numbers != list(range(1, len(rounds) + 1)):
+                    out.append(issue("MC0354", f"source assessment {sid} qualification records are duplicated, skipped, or reordered", "source assessment custody is ambiguous", "number assessment records contiguously from 1"))
+                convergence = deep_review.get("convergence", {})
+                if not isinstance(convergence, dict) or convergence.get("material_omissions_remaining") is not False:
+                    out.append(issue("MC0313", f"source assessment {sid} has unresolved material omissions", "the mission can promote while material source questions remain unassessed", "resolve material omissions before qualification"))
+                if deep_review.get("uninspected_critical_partitions"):
+                    out.append(issue("MC0329", f"source assessment {sid} still has uninspected critical partitions", "important source scope remains unread", "inspect each critical partition or justify its removal before qualification"))
+                if not rounds or not isinstance(rounds[-1], dict) or rounds[-1].get("disposition") != "COMPLETE":
+                    out.append(issue("MC0330", f"source assessment {sid} final assessment is not COMPLETE", "qualification has no explicit completion event", "record completion after material gaps are resolved"))
         expected_bound = mechanisms_by_source.get(str(sid), set())
         contributions = assessment.get("mechanism_contributions", [])
         contribution_ids = [item.get("contribution_id") for item in contributions if isinstance(item, dict)]
@@ -2437,7 +2466,7 @@ def cmd_init(args: argparse.Namespace) -> int:
             "copyright": {"usage_mode": "AUTHORITY_ONLY", "rights_status": "NOT_APPLICABLE", "rights_basis": "previous mission authority", "code_copy_allowed": False, "text_copy_allowed": False, "structure_reuse_allowed": False, "obligations": [], "evidence_ref": spec["previous_mission_handoff"], "notes": "Previous mission output is provenance authority, but current target behavior must still be re-derived and re-verified."},
         })
     write_json(root / "corpus" / "SOURCES.json", {"schema": "flyby/mission-control-source-registry/16", "mission_id": spec["mission_id"], "sources": source_entries})
-    write_json(root / "corpus" / "PROVENANCE_SYNTHESIS.json", {"schema": "flyby/mission-control-provenance-synthesis/16", "mission_id": spec["mission_id"], "methodology": {"source_handling": "RIGHTS_AWARE_FULL_POTENTIAL_SYNTHESIS", "implementation_rule": "FLYBY_OWNED_DERIVATION", "replacement_rule": "PRESERVE_EXTEND_COMBINE_BEFORE_REPLACE"}, "source_assessments": [], "mechanisms": [], "cross_source_synthesis": {"state": "PENDING", "evidence_ref": None, "mechanism_graph_sha256": None, "intercept_matrix_sha256": None, "combination_hypotheses_sha256": None, "evidence_sha256": None, "rationale": "No source-local synthesis has been admitted yet.", "intercept_matrix": [], "combination_hypotheses": []}})
+    write_json(root / "corpus" / "PROVENANCE_SYNTHESIS.json", {"schema": "flyby/mission-control-provenance-synthesis/17", "mission_id": spec["mission_id"], "methodology": {"source_handling": "RIGHTS_AWARE_FULL_POTENTIAL_SYNTHESIS", "implementation_rule": "FLYBY_OWNED_DERIVATION", "replacement_rule": "PRESERVE_EXTEND_COMBINE_BEFORE_REPLACE"}, "source_assessments": [], "mechanisms": [], "cross_source_synthesis": {"state": "PENDING", "evidence_ref": None, "mechanism_graph_sha256": None, "intercept_matrix_sha256": None, "combination_hypotheses_sha256": None, "evidence_sha256": None, "rationale": "No source-local synthesis has been admitted yet.", "intercept_matrix": [], "combination_hypotheses": []}})
     write_json(root / "frontiers" / "F000" / "FRONTIER.json", {"schema": FRONTIER_SCHEMA, "frontier_id": "F000", "cells": cells})
     assets = {rel: sha256(root / rel) for rel in sorted(copied)}
     write_json(root / "TEMPLATE_LOCK.json", {
