@@ -73,7 +73,7 @@ class ReleaseStagingTests(unittest.TestCase):
 
     def stage(self) -> subprocess.CompletedProcess[str]:
         return subprocess.run([powershell_executable(), "-NoProfile", "-NonInteractive", "-File", "dev/stage-mission-control.ps1"], cwd=self.repo,
-                              capture_output=True, text=True, encoding="utf-8", env=clean_env())
+                              capture_output=True, text=True, encoding="utf-8", errors="backslashreplace", env=clean_env())
 
     def test_stage_contains_only_committed_inputs_and_retains_attribution(self) -> None:
         git(self.repo, "config", "core.autocrlf", "true")
@@ -98,6 +98,54 @@ class ReleaseStagingTests(unittest.TestCase):
         repeat = self.stage()
         self.assertNotEqual(0, repeat.returncode)
         self.assertEqual("do not replace", marker.read_text(encoding="utf-8"))
+
+    def test_export_ignore_cannot_silently_omit_required_runtime(self) -> None:
+        attributes = self.repo / ".git" / "info" / "attributes"
+        attributes.write_text("mission-control-template/tools/mc.py export-ignore\n", encoding="utf-8", newline="\n")
+        result = self.stage()
+        self.assertNotEqual(0, result.returncode, "stage accepted an archive missing the required runtime")
+        self.assertIn("mission-control-template/tools/mc.py", result.stderr)
+
+    def test_export_ignore_cannot_omit_other_tracked_input(self) -> None:
+        attributes = self.repo / ".git" / "info" / "attributes"
+        attributes.write_text("mission-control-template/schemas/example.json export-ignore\n", encoding="utf-8", newline="\n")
+        result = self.stage()
+        self.assertNotEqual(0, result.returncode, "stage accepted an archive missing a tracked schema")
+        self.assertIn("mission-control-template/schemas/example.json", result.stderr)
+
+    def test_stage_preserves_paths_with_spaces_and_unicode(self) -> None:
+        name = "mission-control-template/policies/Review caf\u00e9.md"
+        (self.repo / name).write_text("policy\n", encoding="utf-8", newline="\n")
+        git(self.repo, "add", name)
+        git(self.repo, "commit", "-m", "add a named policy")
+        result = self.stage()
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(b"policy\n", (self.repo / "target" / "flyby-dist" / "flyby-integration" / name).read_bytes())
+
+    def test_stage_rejects_case_distinct_paths_that_collapse(self) -> None:
+        name = "mission-control-template/policies/Case.md"
+        other = "mission-control-template/policies/case.md"
+        (self.repo / name).write_text("same bytes\n", encoding="utf-8", newline="\n")
+        if not (self.repo / other).exists():
+            self.skipTest("fixture filesystem is case-sensitive")
+        git(self.repo, "add", name)
+        oid = git(self.repo, "hash-object", name).stdout.strip()
+        git(self.repo, "update-index", "--add", "--cacheinfo", f"100644,{oid},{other}")
+        git(self.repo, "commit", "-m", "add case-distinct inputs")
+        result = self.stage()
+        self.assertNotEqual(0, result.returncode, "stage accepted paths collapsed by extraction")
+        self.assertIn("omitted", result.stderr)
+
+    def test_export_subst_cannot_change_committed_attribution(self) -> None:
+        attribution = self.repo / "INTEGRATION_PROVENANCE.md"
+        attribution.write_text("attribution $Format:%H$\n", encoding="utf-8", newline="\n")
+        git(self.repo, "add", "INTEGRATION_PROVENANCE.md")
+        git(self.repo, "commit", "-m", "add substitution marker")
+        attributes = self.repo / ".git" / "info" / "attributes"
+        attributes.write_text("INTEGRATION_PROVENANCE.md export-subst\n", encoding="utf-8", newline="\n")
+        result = self.stage()
+        self.assertNotEqual(0, result.returncode, "stage accepted substituted attribution bytes")
+        self.assertIn("INTEGRATION_PROVENANCE.md", result.stderr)
 
     def test_tracked_input_drift_blocks_before_staging(self) -> None:
         (self.repo / "mission-control-template" / "TEMPLATE.json").write_text("changed\n", encoding="utf-8")
