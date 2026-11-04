@@ -634,6 +634,589 @@ def test_turn_evidence_checkpoint_chain_cannot_start_at_sequence_two():
         rewrite_turn(root,index,3,lambda e:e['evidence'].update({'checkpoints':[{'checkpoint_sequence':2,'checkpoint_ref':ref,'checkpoint_sha256':sha}]}))
     assert any('checkpoint chain must start at sequence 1' in e for e in errors_for(m))
 
+
+V3_TURN_SCHEMA = _find_schema('SOURCE_REVIEW_TURN_CONTRACT_V3_SCHEMA.json')
+V3_CHAIN_SCHEMA = _find_schema('SOURCE_REVIEW_TURN_CHAIN_INDEX_V2_SCHEMA.json')
+V3_PHASES = [
+    ('EVIDENCE_ASSESSMENT', 'Assess the pinned source and target using evidence for each critical partition.'),
+    ('EVIDENCE_CONTINUATION', 'Resolve the remaining source review evidence and coverage questions.'),
+]
+
+
+def build_valid_v3_chain(turn_count=1):
+    """Create a new contract without modifying any of the legacy fixtures."""
+    assert turn_count in (1, 2)
+    td, root, plan, adoption, index = build_valid_chain()
+    schemas = root / 'schemas'
+    schemas.mkdir()
+    for name in ('SOURCE_REVIEW_TURN_CONTRACT_V3_SCHEMA.json', 'SOURCE_REVIEW_TURN_CHAIN_INDEX_V2_SCHEMA.json', 'DIRECT_LAUNCH_RECEIPT_SCHEMA.json'):
+        (schemas / name).write_bytes((ROOT / 'schemas' / name).read_bytes())
+    rounds = []
+    for number, (name, instruction) in enumerate(V3_PHASES, 1):
+        auth = 'CONVERGENCE_PERMITTED_IF_EXHAUSTED'
+        rounds.append({
+            'round': number if number == 1 else '2+', 'name': name, 'instruction': instruction,
+            'phase_authorization': auth,
+            'phase_contract_sha256': canonical_sha256({'name': name, 'instruction': instruction, 'phase_authorization': auth}),
+        })
+    plan['round_contracts'] = rounds
+    plan['owner_map']['sources'][0]['envelope_regime'] = 'POST_ENFORCEMENT_V3'
+    adoption.update({
+        'schema': 'flyby/source-review-turn-contract-adoption/2',
+        'turn_contract_version': 'flyby/source-review-turn-contract/3',
+        'turn_contract_schema_ref': 'schemas/SOURCE_REVIEW_TURN_CONTRACT_V3_SCHEMA.json',
+        'turn_contract_schema_sha256': file_sha256(schemas / 'SOURCE_REVIEW_TURN_CONTRACT_V3_SCHEMA.json'),
+        'turn_chain_index_schema_ref': 'schemas/SOURCE_REVIEW_TURN_CHAIN_INDEX_V2_SCHEMA.json',
+        'turn_chain_index_schema_sha256': file_sha256(schemas / 'SOURCE_REVIEW_TURN_CHAIN_INDEX_V2_SCHEMA.json'),
+        'launch_receipt_schema_ref': 'schemas/DIRECT_LAUNCH_RECEIPT_SCHEMA.json',
+        'launch_receipt_schema_sha256': file_sha256(schemas / 'DIRECT_LAUNCH_RECEIPT_SCHEMA.json'),
+        'round_contracts_sha256': canonical_sha256([{'name': row['name'], 'phase_contract_sha256': row['phase_contract_sha256']} for row in rounds]),
+    })
+    adoption_path = root / index['adoption_ref']
+    write_json(adoption_path, adoption)
+    index['adoption_sha256'] = file_sha256(adoption_path)
+    index['schema'] = 'flyby/source-review-turn-chain-index/2'
+    generation = index['post_enforcement_generations'][0]
+    generation['turns'] = generation['turns'][:turn_count]
+    generation['state'] = 'CONVERGED'
+
+    prompt1 = root / 'evidence' / 'prompt1.txt'
+    prompt1.write_text(f"source={SOURCE_ID}\nref={SOURCE_REF}\ntarget_base={plan['target_base']}\ngeneration=2\nthread_id=PENDING_DIRECT_LAUNCH\nphase={V3_PHASES[0][1]}\n", encoding='utf-8')
+    from source_review_turn_chain import launch_receipt_hash
+    receipt_path = root / generation['launch_receipt_ref']
+    receipt = json.loads(receipt_path.read_text(encoding='utf-8'))
+    receipt['turn_1_prompt_sha256'] = file_sha256(prompt1)
+    receipt['receipt_sha256'] = launch_receipt_hash(receipt)
+    write_json(receipt_path, receipt)
+    generation['launch_receipt_sha256'] = file_sha256(receipt_path)
+    prior = None
+    for num in range(1, turn_count + 1):
+        rec = generation['turns'][num - 1]
+        turn_path = root / rec['ref']
+        env = json.loads(turn_path.read_text(encoding='utf-8'))
+        round_contract = rounds[0 if num == 1 else 1]
+        prompt = root / f'evidence/prompt{num}.txt'
+        if num > 1:
+            prompt.write_text(f"source={SOURCE_ID}\nref={SOURCE_REF}\ntarget_base={plan['target_base']}\ngeneration=2\nthread_id={THREAD}\nprior_turn_sha256={prior}\nphase={round_contract['instruction']}\n", encoding='utf-8')
+        env['contract_version'] = 'flyby/source-review-turn-contract/3'
+        env['adoption_sha256'] = index['adoption_sha256']
+        env['source_binding']['launch_receipt_sha256'] = generation['launch_receipt_sha256']
+        env['turn_metadata'].update({
+            'phase': round_contract['name'], 'phase_authorization': round_contract['phase_authorization'],
+            'phase_contract_sha256': round_contract['phase_contract_sha256'],
+            'instruction_sha256': file_sha256(prompt), 'prior_turn_sha256': prior,
+        })
+        complete = num == turn_count
+        first_locator = env['turn_payload']['inspected_locators'][0]
+        locators = [dict(first_locator, locator=f'L{item + 1}') for item in range(len(CRITICAL))]
+        covered = CRITICAL if complete else CRITICAL[:1]
+        env['turn_payload']['inspected_locators'] = locators if complete else locators[:1]
+        env['turn_payload']['partition_evidence'] = [
+            {'partition': partition, 'inspected_locators': [locators[item]]}
+            for item, partition in enumerate(covered)
+        ]
+        env['turn_payload'].update({
+            'disposition_status': 'CONVERGED' if complete else 'IN_PROGRESS',
+            'covered_critical_partitions': CRITICAL if complete else CRITICAL[:1],
+            'uninspected_critical_partitions': [] if complete else CRITICAL[1:],
+            'material_omissions_remaining': not complete,
+            'verdict_rationale': 'Evidence is complete.' if complete else 'Remaining partitions need evidence.',
+        })
+        env['turn_sha256'] = envelope_hash(env)
+        write_json(turn_path, env)
+        rec['sha256'] = file_sha256(turn_path)
+        prior = env['turn_sha256']
+    return td, root, plan, adoption, index
+
+
+def errors_for_v3(mutator=None, turn_count=1, schema=None):
+    td, root, plan, adoption, index = build_valid_v3_chain(turn_count)
+    try:
+        if mutator:
+            mutator(root, plan, adoption, index)
+        return validate_turn_chain(root, V3_TURN_SCHEMA if schema is None else schema, V3_CHAIN_SCHEMA, LAUNCH_SCHEMA, adoption, plan, index)
+    finally:
+        td.cleanup()
+
+
+def test_v3_schema_preserves_guards_and_adds_partition_evidence():
+    expected = copy.deepcopy(TURN_SCHEMA)
+    expected['$id'] = 'flyby/mission-control-source-review-turn/3'
+    expected['properties']['contract_version']['const'] = 'flyby/source-review-turn-contract/3'
+    expected['properties']['turn_metadata']['properties']['phase']['enum'] = ['EVIDENCE_ASSESSMENT', 'EVIDENCE_CONTINUATION']
+    payload = expected['properties']['turn_payload']
+    payload['required'].append('partition_evidence')
+    payload['properties']['partition_evidence'] = {
+        'type': 'array', 'items': {
+            'type': 'object', 'additionalProperties': False,
+            'required': ['partition', 'inspected_locators'],
+            'properties': {
+                'partition': {'type': 'string', 'minLength': 1},
+                'inspected_locators': copy.deepcopy(payload['properties']['inspected_locators']),
+            },
+        },
+    }
+    assert V3_TURN_SCHEMA == expected
+
+
+def test_v3_one_turn_evidence_based_convergence_passes():
+    assert errors_for_v3() == []
+
+
+def test_v3_continues_when_evidence_remains_open():
+    assert errors_for_v3(turn_count=2) == []
+
+
+def test_v3_convergence_with_uninspected_critical_partition_rejected():
+    def mutate(root, plan, adoption, index):
+        rewrite_turn(root, index, 1, lambda env: env['turn_payload'].update({
+            'covered_critical_partitions': CRITICAL[:2],
+            'uninspected_critical_partitions': CRITICAL[2:],
+            'material_omissions_remaining': True,
+        }))
+    assert any('false convergence with open gaps' in error for error in errors_for_v3(mutate))
+
+
+
+def test_v3_requires_evidence_for_every_covered_partition():
+    def missing(root, plan, adoption, index):
+        rewrite_turn(root, index, 1, lambda env: env['turn_payload']['partition_evidence'].pop())
+    assert any('covered partition evidence mapping mismatch' in error for error in errors_for_v3(missing))
+    def duplicate(root, plan, adoption, index):
+        def alter(env):
+            env['turn_payload']['partition_evidence'].append(copy.deepcopy(env['turn_payload']['partition_evidence'][0]))
+        rewrite_turn(root, index, 1, alter)
+    assert any('covered partition evidence mapping mismatch' in error for error in errors_for_v3(duplicate))
+
+
+def test_v3_partition_evidence_must_point_to_inspected_locator():
+    def uninspected(root, plan, adoption, index):
+        def alter(env):
+            env['turn_payload']['partition_evidence'][0]['inspected_locators'][0]['locator'] = 'uninspected'
+        rewrite_turn(root, index, 1, alter)
+    assert any('partition evidence locator was not inspected' in error for error in errors_for_v3(uninspected))
+
+
+def test_v3_mandatory_adversarial_phase_is_not_accepted():
+    def mutate(root, plan, adoption, index):
+        rewrite_turn(root, index, 1, lambda env: env['turn_metadata'].update({'phase': 'OMISSION_AND_ADVERSARIAL_CHALLENGE'}))
+    assert any('turn phase sequence mismatch' in error for error in errors_for_v3(mutate))
+
+
+def test_v3_cannot_use_legacy_envelope_or_owner_regime():
+    def mutate(root, plan, adoption, index):
+        plan['owner_map']['sources'][0]['envelope_regime'] = 'POST_ENFORCEMENT_V2'
+        rewrite_turn(root, index, 1, lambda env: env.update({'contract_version': 'flyby/source-review-turn-contract/2.1'}))
+    errors = errors_for_v3(mutate)
+    assert any('post-enforcement generation not active' in error for error in errors)
+    assert any('turn contract version mismatch' in error for error in errors)
+
+
+def test_v3_adoption_cannot_be_downgraded_or_unknown():
+    def downgrade(root, plan, adoption, index):
+        adoption.pop('turn_contract_version')
+    assert any('v3 chain index requires version 3 adoption' in error for error in errors_for_v3(downgrade))
+    def unknown(root, plan, adoption, index):
+        adoption['turn_contract_version'] = 'flyby/source-review-turn-contract/999'
+    assert any('unsupported turn contract version' in error for error in errors_for_v3(unknown))
+    def malformed(root, plan, adoption, index):
+        adoption['turn_contract_version'] = ['not', 'a', 'version']
+    assert any('unsupported turn contract version' in error for error in errors_for_v3(malformed))
+
+
+
+def test_v3_index_cannot_downgrade_to_versionless_supplied_adoption():
+    def mutate(root, plan, adoption, index):
+        adoption.pop('schema')
+        adoption.pop('turn_contract_version')
+    errors = errors_for_v3(mutate)
+    assert any('v3 chain index requires version 3 adoption' in error for error in errors)
+    assert any('v3 adoption content differs' in error for error in errors)
+
+
+def test_v3_index_requires_present_adoption_file():
+    def mutate(root, plan, adoption, index):
+        (root / index['adoption_ref']).unlink()
+    assert any('v3 adoption file missing' in error for error in errors_for_v3(mutate))
+
+
+def test_legacy_index_rejects_v3_adoption_on_disk_even_with_legacy_argument():
+    td, root, plan, legacy_adoption, index = build_valid_chain()
+    try:
+        disk_adoption = copy.deepcopy(legacy_adoption)
+        disk_adoption['schema'] = 'flyby/source-review-turn-contract-adoption/2'
+        disk_adoption['turn_contract_version'] = 'flyby/source-review-turn-contract/3'
+        path = root / index['adoption_ref']
+        write_json(path, disk_adoption)
+        index['adoption_sha256'] = file_sha256(path)
+        prior = None
+        for rec in index['post_enforcement_generations'][0]['turns']:
+            turn_path = root / rec['ref']
+            envelope = json.loads(turn_path.read_text(encoding='utf-8'))
+            if prior is not None:
+                prompt_path = root / envelope['turn_metadata']['instruction_ref']
+                prompt = prompt_path.read_text(encoding='utf-8')
+                old_prior = envelope['turn_metadata']['prior_turn_sha256']
+                assert old_prior in prompt
+                prompt_path.write_text(prompt.replace(old_prior, prior), encoding='utf-8')
+                envelope['turn_metadata']['instruction_sha256'] = file_sha256(prompt_path)
+                envelope['turn_metadata']['prior_turn_sha256'] = prior
+            envelope['adoption_sha256'] = index['adoption_sha256']
+            envelope['turn_sha256'] = envelope_hash(envelope)
+            write_json(turn_path, envelope)
+            rec['sha256'] = file_sha256(turn_path)
+            prior = envelope['turn_sha256']
+        errors = validate_turn_chain(root, TURN_SCHEMA, CHAIN_SCHEMA, LAUNCH_SCHEMA, legacy_adoption, plan, index)
+        assert errors == ['legacy chain index references a v3 adoption on disk'], errors
+    finally:
+        td.cleanup()
+
+
+def test_legacy_index_retains_missing_or_unreadable_adoption_compatibility():
+    def missing(root, plan, adoption, index):
+        (root / index['adoption_ref']).unlink()
+    assert errors_for(missing) == []
+    def unreadable(root, plan, adoption, index):
+        (root / index['adoption_ref']).write_text('{invalid json', encoding='utf-8')
+    assert errors_for(unreadable) == []
+
+
+def test_v3_rejects_forged_launch_schema_and_self_consistent_receipt():
+    from source_review_turn_chain import launch_receipt_hash
+    td, root, plan, adoption, index = build_valid_v3_chain()
+    try:
+        forged_schema = {}
+        schema_path = root / adoption['launch_receipt_schema_ref']
+        write_json(schema_path, forged_schema)
+        adoption['launch_receipt_schema_sha256'] = file_sha256(schema_path)
+        adoption_path = root / index['adoption_ref']
+        write_json(adoption_path, adoption)
+        index['adoption_sha256'] = file_sha256(adoption_path)
+        generation = index['post_enforcement_generations'][0]
+        receipt_path = root / generation['launch_receipt_ref']
+        receipt = json.loads(receipt_path.read_text(encoding='utf-8'))
+        receipt.pop('schema')
+        receipt.pop('launch_observed_at')
+        receipt['receipt_sha256'] = launch_receipt_hash(receipt)
+        write_json(receipt_path, receipt)
+        generation['launch_receipt_sha256'] = file_sha256(receipt_path)
+        def rebind(envelope):
+            envelope['adoption_sha256'] = index['adoption_sha256']
+            envelope['source_binding']['launch_receipt_sha256'] = generation['launch_receipt_sha256']
+        rewrite_turn(root, index, 1, rebind)
+        errors = validate_turn_chain(root, V3_TURN_SCHEMA, V3_CHAIN_SCHEMA, forged_schema, adoption, plan, index)
+        assert errors == ['v3 supplied launch_receipt_schema differs from installed schema'], errors
+    finally:
+        td.cleanup()
+
+
+
+def add_v3_checkpoint(root, adoption, index, *, location='generation', malformed=False, forge_schema=False):
+    contracts = root / 'contracts' / 'schemas'
+    contracts.mkdir(parents=True)
+    schema_path = contracts / 'SOURCE_REVIEW_CHECKPOINT_V2_SCHEMA.json'
+    if forge_schema:
+        write_json(schema_path, {})
+    else:
+        schema_path.write_bytes((ROOT / 'schemas' / 'SOURCE_REVIEW_CHECKPOINT_V2_SCHEMA.json').read_bytes())
+    adoption['checkpoint_schema_ref'] = 'contracts/schemas/SOURCE_REVIEW_CHECKPOINT_V2_SCHEMA.json'
+    adoption['checkpoint_schema_sha256'] = file_sha256(schema_path)
+    adoption_path = root / index['adoption_ref']
+    write_json(adoption_path, adoption)
+    index['adoption_sha256'] = file_sha256(adoption_path)
+    checkpoint, ref, _ = build_valid_checkpoint(root, seq=1, turn_num=1)
+    checkpoint['schema'] = 'flyby/source-review-checkpoint/2'
+    checkpoint['confidence_and_open_questions']['resolved_questions'] = []
+    if malformed:
+        for key in ('schema', 'confidence_and_open_questions', 'unresolved_rights_issues'):
+            checkpoint.pop(key)
+    path = root / ref
+    write_json(path, checkpoint)
+    sha = file_sha256(path)
+    generation = index['post_enforcement_generations'][0]
+    if location == 'generation':
+        generation['checkpoints'] = [{'checkpoint_sequence': 1, 'ref': ref, 'sha256': sha}]
+    def rebind(envelope):
+        envelope['adoption_sha256'] = index['adoption_sha256']
+        if location == 'turn':
+            envelope['evidence']['checkpoints'] = [{'checkpoint_sequence': 1, 'checkpoint_ref': ref, 'checkpoint_sha256': sha}]
+    rewrite_turn(root, index, 1, rebind)
+
+
+
+def test_v3_checkpoint_schema_fixes_only_legacy_field_and_version():
+    expected = copy.deepcopy(CHECKPOINT_SCHEMA)
+    expected['$id'] = 'flyby/mission-control-source-review-checkpoint/2'
+    expected['properties']['schema']['const'] = 'flyby/source-review-checkpoint/2'
+    questions = expected['properties']['confidence_and_open_questions']['properties']
+    questions['resolved_questions'] = copy.deepcopy(questions['open_questions'])
+    assert _find_schema('SOURCE_REVIEW_CHECKPOINT_V2_SCHEMA.json') == expected
+
+
+def test_v3_checkpoint_schema_loads_from_initialized_mission_contracts():
+    td, root, plan, adoption, index = build_valid_v3_chain()
+    try:
+        add_v3_checkpoint(root, adoption, index, location='generation')
+        (root / 'schemas' / 'SOURCE_REVIEW_CHECKPOINT_SCHEMA.json').write_bytes((ROOT / 'schemas' / 'SOURCE_REVIEW_CHECKPOINT_SCHEMA.json').read_bytes())
+        assert validate_turn_chain(root, V3_TURN_SCHEMA, V3_CHAIN_SCHEMA, LAUNCH_SCHEMA, adoption, plan, index) == []
+        errors = validate_turn_chain(root, V3_TURN_SCHEMA, V3_CHAIN_SCHEMA, LAUNCH_SCHEMA, adoption, plan, index, checkpoint_schema=CHECKPOINT_SCHEMA)
+        assert any('v3 supplied checkpoint_schema differs from installed schema' in error for error in errors), errors
+    finally:
+        td.cleanup()
+    td, root, plan, adoption, index = build_valid_v3_chain()
+    try:
+        add_v3_checkpoint(root, adoption, index, location='turn')
+        assert validate_turn_chain(root, V3_TURN_SCHEMA, V3_CHAIN_SCHEMA, LAUNCH_SCHEMA, adoption, plan, index) == []
+    finally:
+        td.cleanup()
+
+
+def test_v3_checkpoint_schema_is_required_when_checkpoints_exist():
+    td, root, plan, adoption, index = build_valid_v3_chain()
+    try:
+        checkpoint, ref, sha = build_valid_checkpoint(root)
+        index['post_enforcement_generations'][0]['checkpoints'] = [{'checkpoint_sequence': 1, 'ref': ref, 'sha256': sha}]
+        errors = validate_turn_chain(root, V3_TURN_SCHEMA, V3_CHAIN_SCHEMA, LAUNCH_SCHEMA, adoption, plan, index)
+        assert any('v3 checkpoint schema required when checkpoints are present' in error for error in errors)
+    finally:
+        td.cleanup()
+
+
+def test_v3_rejects_malformed_checkpoint_and_forged_schema():
+    for location in ('generation', 'turn'):
+        td, root, plan, adoption, index = build_valid_v3_chain()
+        try:
+            add_v3_checkpoint(root, adoption, index, location=location, malformed=True)
+            errors = validate_turn_chain(root, V3_TURN_SCHEMA, V3_CHAIN_SCHEMA, LAUNCH_SCHEMA, adoption, plan, index)
+            assert any('checkpoint schema' in error for error in errors), errors
+        finally:
+            td.cleanup()
+        td, root, plan, adoption, index = build_valid_v3_chain()
+        try:
+            add_v3_checkpoint(root, adoption, index, location=location, malformed=True, forge_schema=True)
+            errors = validate_turn_chain(root, V3_TURN_SCHEMA, V3_CHAIN_SCHEMA, LAUNCH_SCHEMA, adoption, plan, index, checkpoint_schema={})
+            assert any('v3 supplied checkpoint_schema differs from installed schema' in error for error in errors), errors
+        finally:
+            td.cleanup()
+
+
+
+def test_v3_rejects_non_object_checkpoint_payloads_in_both_locations():
+    for location in ('generation', 'turn'):
+        for value in ([], None, '', 7, False):
+            td, root, plan, adoption, index = build_valid_v3_chain()
+            try:
+                add_v3_checkpoint(root, adoption, index, location=location)
+                path = root / 'evidence/checkpoints/chk_1_1.json'
+                write_json(path, value)
+                sha = file_sha256(path)
+                if location == 'generation':
+                    index['post_enforcement_generations'][0]['checkpoints'][0]['sha256'] = sha
+                else:
+                    rewrite_turn(root, index, 1, lambda envelope: envelope['evidence']['checkpoints'][0].update({'checkpoint_sha256': sha}))
+                errors = validate_turn_chain(root, V3_TURN_SCHEMA, V3_CHAIN_SCHEMA, LAUNCH_SCHEMA, adoption, plan, index)
+                assert any('checkpoint payload must be an object' in error for error in errors), (location, value, errors)
+            finally:
+                td.cleanup()
+
+
+def test_v3_rejects_non_object_launch_receipt_payload():
+    for value in ([], None, '', 7, False):
+        td, root, plan, adoption, index = build_valid_v3_chain()
+        try:
+            generation = index['post_enforcement_generations'][0]
+            path = root / generation['launch_receipt_ref']
+            write_json(path, value)
+            generation['launch_receipt_sha256'] = file_sha256(path)
+            rewrite_turn(root, index, 1, lambda envelope: envelope['source_binding'].update({'launch_receipt_sha256': generation['launch_receipt_sha256']}))
+            errors = validate_turn_chain(root, V3_TURN_SCHEMA, V3_CHAIN_SCHEMA, LAUNCH_SCHEMA, adoption, plan, index)
+            assert any('launch receipt payload must be an object' in error for error in errors), (value, errors)
+        finally:
+            td.cleanup()
+
+
+def test_legacy_non_object_checkpoint_behavior_is_unchanged():
+    for location in ('generation', 'turn'):
+        def mutate(root, plan, adoption, index):
+            _, ref, _ = build_valid_checkpoint(root, seq=1, turn_num=3)
+            path = root / ref
+            write_json(path, [])
+            sha = file_sha256(path)
+            if location == 'generation':
+                index['post_enforcement_generations'][0]['checkpoints'] = [{'checkpoint_sequence': 1, 'ref': ref, 'sha256': sha}]
+            else:
+                rewrite_turn(root, index, 3, lambda envelope: envelope['evidence'].update({'checkpoints': [{'checkpoint_sequence': 1, 'checkpoint_ref': ref, 'checkpoint_sha256': sha}]}))
+        assert errors_for(mutate) == []
+
+
+def test_legacy_non_object_launch_receipt_behavior_is_unchanged():
+    def mutate(root, plan, adoption, index):
+        generation = index['post_enforcement_generations'][0]
+        path = root / generation['launch_receipt_ref']
+        write_json(path, [])
+        generation['launch_receipt_sha256'] = file_sha256(path)
+        prior = None
+        for rec in generation['turns']:
+            turn_path = root / rec['ref']
+            envelope = json.loads(turn_path.read_text(encoding='utf-8'))
+            if prior is not None:
+                prompt_path = root / envelope['turn_metadata']['instruction_ref']
+                prompt = prompt_path.read_text(encoding='utf-8')
+                old_prior = envelope['turn_metadata']['prior_turn_sha256']
+                assert old_prior in prompt
+                prompt_path.write_text(prompt.replace(old_prior, prior), encoding='utf-8')
+                envelope['turn_metadata']['instruction_sha256'] = file_sha256(prompt_path)
+                envelope['turn_metadata']['prior_turn_sha256'] = prior
+            envelope['source_binding']['launch_receipt_sha256'] = generation['launch_receipt_sha256']
+            envelope['turn_sha256'] = envelope_hash(envelope)
+            write_json(turn_path, envelope)
+            rec['sha256'] = file_sha256(turn_path)
+            prior = envelope['turn_sha256']
+    assert errors_for(mutate) == []
+
+
+
+def replace_v3_birth_evidence(root, index, text):
+    from source_review_turn_chain import launch_receipt_hash
+    generation = index['post_enforcement_generations'][0]
+    receipt_path = root / generation['launch_receipt_ref']
+    receipt = json.loads(receipt_path.read_text(encoding='utf-8'))
+    birth_path = root / receipt['session_birth_evidence_ref']
+    birth_path.write_text(text, encoding='utf-8')
+    receipt['session_birth_evidence_sha256'] = file_sha256(birth_path)
+    receipt['receipt_sha256'] = launch_receipt_hash(receipt)
+    write_json(receipt_path, receipt)
+    generation['launch_receipt_sha256'] = file_sha256(receipt_path)
+    rewrite_turn(root, index, 1, lambda envelope: envelope['source_binding'].update({'launch_receipt_sha256': generation['launch_receipt_sha256']}))
+
+
+def test_v3_birth_evidence_rejects_empty_unparseable_and_unbound_claims():
+    samples = [
+        '', '  \n', '{broken', '[]', 'null',
+        json.dumps({'approval_policy': 'never', 'sandbox_policy': 'danger-full-access'}),
+        json.dumps({'schema': 'flyby/provider-session-birth-evidence/1', 'thread_id': THREAD, 'provider': 'mailbox.codex', 'birth_type': 'DIRECT_TOP_LEVEL_START', 'approval_policy': 'never', 'sandbox_policy': 'danger-full-access', 'child_thread_created': False, 'delegation_used': False, 'session_birth_lines': []}),
+    ]
+    for sample in samples:
+        def mutate(root, plan, adoption, index):
+            replace_v3_birth_evidence(root, index, sample)
+        errors = errors_for_v3(mutate)
+        assert any('session birth evidence' in error for error in errors), (sample, errors)
+
+
+def test_v3_birth_evidence_requires_bound_identity_and_observed_allowed_context():
+    for field, value in (('thread_id', None), ('thread_id', 'other'), ('provider', None), ('provider', 'other')):
+        def mutate(root, plan, adoption, index):
+            birth_path = root / 'evidence/session_birth.json'
+            birth = json.loads(birth_path.read_text(encoding='utf-8'))
+            if value is None:
+                birth.pop(field)
+            else:
+                birth[field] = value
+            replace_v3_birth_evidence(root, index, json.dumps(birth))
+        assert any('session birth evidence' in error for error in errors_for_v3(mutate)), field
+    def bad_context(root, plan, adoption, index):
+        birth_path = root / 'evidence/session_birth.json'
+        birth = json.loads(birth_path.read_text(encoding='utf-8'))
+        birth['session_birth_lines'][0]['payload']['approval_policy'] = 'on-request'
+        replace_v3_birth_evidence(root, index, json.dumps(birth))
+    assert any('forbidden or missing policy' in error for error in errors_for_v3(bad_context))
+
+
+def test_v3_jsonl_birth_evidence_requires_identity_on_observed_context():
+    context = {'type': 'turn_context', 'thread_id': THREAD, 'provider': 'mailbox.codex', 'payload': {'approval_policy': 'never', 'sandbox_policy': {'type': 'danger-full-access'}}}
+    tail = {'type': 'response_item', 'payload': {'type': 'message', 'role': 'assistant'}}
+    def valid(root, plan, adoption, index):
+        replace_v3_birth_evidence(root, index, json.dumps(context) + '\n' + json.dumps(tail) + '\n')
+    assert errors_for_v3(valid) == []
+    def one_line(root, plan, adoption, index):
+        replace_v3_birth_evidence(root, index, json.dumps(context) + '\n')
+    assert errors_for_v3(one_line) == []
+    nested = copy.deepcopy(context)
+    nested['payload']['thread_id'] = nested.pop('thread_id')
+    nested['payload']['provider'] = nested.pop('provider')
+    def payload_identity(root, plan, adoption, index):
+        replace_v3_birth_evidence(root, index, json.dumps(nested) + '\n')
+    assert errors_for_v3(payload_identity) == []
+    for field in ('thread_id', 'provider'):
+        unbound = copy.deepcopy(context)
+        unbound.pop(field)
+        def missing(root, plan, adoption, index):
+            replace_v3_birth_evidence(root, index, json.dumps(unbound) + '\n' + json.dumps(tail) + '\n')
+        assert any(field + ' missing' in error for error in errors_for_v3(missing)), field
+    def corrupt(root, plan, adoption, index):
+        replace_v3_birth_evidence(root, index, json.dumps(context) + '\n{broken\n')
+    assert any('JSONL line' in error for error in errors_for_v3(corrupt))
+
+
+def test_v3_birth_evidence_rejects_child_session_event():
+    context = {'type': 'turn_context', 'thread_id': THREAD, 'provider': 'mailbox.codex', 'payload': {'approval_policy': 'never', 'sandbox_policy': 'danger-full-access'}}
+    for kind in ('function_call', 'function_call_output'):
+        for name in ('create_thread', 'fork_thread'):
+            child = {'type': 'response_item', 'payload': {'type': kind, 'name': name}}
+            def mutate(root, plan, adoption, index):
+                replace_v3_birth_evidence(root, index, json.dumps(context) + '\n' + json.dumps(child) + '\n')
+            assert any('child thread birth detected' in error for error in errors_for_v3(mutate)), (kind, name)
+
+
+def test_legacy_empty_birth_evidence_behavior_is_unchanged():
+    def mutate(root, plan, adoption, index):
+        birth_path = root / 'evidence/session_birth.json'
+        birth_path.write_text('', encoding='utf-8')
+        receipt = json.loads((root / 'receipt.json').read_text(encoding='utf-8'))
+        receipt['session_birth_evidence_sha256'] = file_sha256(birth_path)
+        sync_receipt_and_turns(root, index, receipt)
+    assert errors_for(mutate) == []
+
+
+def test_v3_adoption_bytes_and_supplied_contents_are_bound():
+    def tamper_file(root, plan, adoption, index):
+        path = root / index['adoption_ref']
+        path.write_bytes(path.read_bytes() + b' ')
+    assert any('v3 adoption file hash drift' in error for error in errors_for_v3(tamper_file))
+    def tamper_argument(root, plan, adoption, index):
+        adoption['extra_unbound_claim'] = True
+    assert any('v3 adoption content differs' in error for error in errors_for_v3(tamper_argument))
+    def escape_root(root, plan, adoption, index):
+        index['adoption_ref'] = '../adoption.json'
+    assert any('v3 adoption ref or contents invalid' in error for error in errors_for_v3(escape_root))
+
+
+def test_v3_rejects_forged_schema_even_when_adoption_hashes_match():
+    td, root, plan, adoption, index = build_valid_v3_chain()
+    try:
+        forged = copy.deepcopy(V3_TURN_SCHEMA)
+        forged['properties']['turn_metadata']['properties']['phase']['enum'].append('FORGED_PHASE')
+        path = root / adoption['turn_contract_schema_ref']
+        write_json(path, forged)
+        adoption['turn_contract_schema_sha256'] = file_sha256(path)
+        adoption_path = root / index['adoption_ref']
+        write_json(adoption_path, adoption)
+        index['adoption_sha256'] = file_sha256(adoption_path)
+        rewrite_turn(root, index, 1, lambda env: env.update({'adoption_sha256': index['adoption_sha256']}))
+        errors = validate_turn_chain(root, forged, V3_CHAIN_SCHEMA, LAUNCH_SCHEMA, adoption, plan, index)
+        assert any('v3 supplied turn_contract_schema differs from installed schema' in error for error in errors)
+    finally:
+        td.cleanup()
+
+
+def test_v3_keeps_evidence_predecessor_and_source_bindings():
+    def evidence_drift(root, plan, adoption, index):
+        (root / 'evidence/evidence1.json').write_text('changed', encoding='utf-8')
+    assert any('turn evidence hash drift' in error for error in errors_for_v3(evidence_drift))
+    def predecessor_drift(root, plan, adoption, index):
+        rewrite_turn(root, index, 2, lambda env: env['turn_metadata'].update({'prior_turn_sha256': '0' * 64}))
+    assert any('does not match exact predecessor' in error for error in errors_for_v3(predecessor_drift, turn_count=2))
+    def wrong_source(root, plan, adoption, index):
+        rewrite_turn(root, index, 1, lambda env: env['source_binding'].update({'source_identity': 'different@pin'}))
+    assert any('turn source binding mismatch' in error for error in errors_for_v3(wrong_source))
+
+
+def test_v3_cannot_converge_when_its_phase_forbids_it():
+    def mutate(root, plan, adoption, index):
+        rewrite_turn(root, index, 1, lambda env: env['turn_metadata'].update({'phase_authorization': 'CONVERGENCE_FORBIDDEN'}))
+    assert any('forbidden-phase convergence' in error for error in errors_for_v3(mutate))
+
+
 def main():
     tests=[(n,o) for n,o in sorted(globals().items()) if n.startswith('test_') and callable(o)]
     for name,test in tests: test(); print(name+': PASS')

@@ -77,6 +77,33 @@ the current base is absent or cannot be checked locally, publication stops and
 the branch is preserved. A failed or uncertain push or PR creation must be
 reconciled before retrying.
 
+Before reporting publication success, the bridge reads the resulting PR and
+checks its repository, branch names, head and base commits, and open state. A
+new PR must still be a draft. It then reads the remote refs again. The same
+checks apply when reconciling an existing PR, without changing its review state.
+A failed read or a changed candidate/base leaves the branch and any PR intact
+and requires reconciliation before retrying. This is an observed receipt, not
+an atomic transaction across Git and GitHub: another actor can still change a
+ref afterward. Review and acceptance must remain bound to the candidate commit.
+
+### Concurrent scopes
+
+Linked worktrees already reuse Git's object store; they do not need separate
+clones or object transfers to integrate local branches. Working trees and indexes
+are separate, but ordinary branch refs are shared. Worktrunk advances branches
+with Git's expected-old-commit comparison, and the bridge creates a published
+branch only if that remote ref is absent. Independent branch publications do
+not take a repository-wide bridge lock. Competing publications to the same
+absent ref cannot overwrite one another; reconcile the winning ref before retrying.
+Mission Control still coordinates its shared mission state and resource claims.
+
+These boundaries apply the per-ref coordination and immutable-object lessons
+from [Scaling Git at OpenAI](https://openai.com/index/scaling-git-at-openai/).
+They do not add a storage backend, custom Git flags, automatic fetches, or pack
+cleanup. Git continues to own object validation, ref transactions, and transport.
+The bridge's tests synchronize real local pushes to exercise independent refs
+and competing creators, and inject changes around forge reads to check that
+publication rejects mismatches observed during final verification.
 If main advances after a scope was accepted, first fetch the actual current
 base using the project's normal Git workflow. Pass its exact locally available
 commit to `handoff` while the mission is still in its mutation phase:

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import contextlib
+import concurrent.futures
+import threading
 import hashlib
 import importlib.util
 import io
@@ -64,6 +66,11 @@ class PublishTests(unittest.TestCase):
             if self.gh_fails:
                 return subprocess.CompletedProcess(argv, 1, "", "forge unavailable")
             return subprocess.CompletedProcess(argv, 0, json.dumps(self.open_prs), "")
+        if "view" in argv and "pr" in argv:
+            value = {"url": argv[3], "headRefOid": self.head, "baseRefOid": self.remote_base,
+                     "headRefName": "scope/one", "baseRefName": "main", "state": "OPEN",
+                     "isDraft": True, "isCrossRepository": False}
+            return subprocess.CompletedProcess(argv, 0, json.dumps(value), "")
         if "create" in argv and "pr" in argv:
             return subprocess.CompletedProcess(argv, 0, "https://github.com/owner/repo/pull/1\n", "")
         return subprocess.CompletedProcess(argv, 0, "", "")
@@ -234,6 +241,125 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
 
 
+    def test_post_create_metadata_must_bind_the_accepted_candidate(self):
+        original = self.run_command
+        for field, value in (("headRefOid", "c" * 40), ("baseRefOid", "d" * 40),
+                             ("headRefName", "other"), ("baseRefName", "other"),
+                             ("state", "CLOSED"), ("isDraft", False),
+                             ("isCrossRepository", True), ("url", None)):
+            with self.subTest(field=field):
+                self.calls.clear()
+                self.remote_branch = None
+                def changed_view(argv, **kwargs):
+                    proc = original(argv, **kwargs)
+                    if "pr" in argv and "view" in argv:
+                        data = json.loads(proc.stdout)
+                        data[field] = value
+                        return subprocess.CompletedProcess(argv, 0, json.dumps(data), "")
+                    return proc
+                self.run_command = changed_view
+                with self.assertRaisesRegex(bridge.BridgeError, "reconcile before retrying"):
+                    self.invoke()
+                self.assertEqual(self.remote_branch, self.head)
+                self.assertEqual(sum("create" in call for call in self.calls), 1)
+        self.run_command = original
+
+    def test_uncertain_post_create_read_never_reports_success_or_retries(self):
+        original = self.run_command
+        for response in (subprocess.CompletedProcess([], 1, "", "unavailable"),
+                         subprocess.CompletedProcess([], 0, "not json", ""),
+                         subprocess.CompletedProcess([], 0, "[]", "")):
+            with self.subTest(response=response):
+                self.calls.clear()
+                self.remote_branch = None
+                def failed_view(argv, **kwargs):
+                    proc = original(argv, **kwargs)
+                    return response if "pr" in argv and "view" in argv else proc
+                self.run_command = failed_view
+                with self.assertRaisesRegex(bridge.BridgeError, "reconcile before retrying"):
+                    self.invoke()
+                self.assertEqual(sum("create" in call for call in self.calls), 1)
+                self.assertEqual(self.remote_branch, self.head)
+        self.run_command = original
+
+    def test_refs_moving_after_forge_read_are_detected_for_new_and_existing_pr(self):
+        original = self.run_command
+        for existing in (False, True):
+            for changed in ("head", "base"):
+                with self.subTest(existing=existing, changed=changed):
+                    self.calls.clear()
+                    self.remote_base = self.base
+                    self.remote_branch = self.head if existing else None
+                    self.open_prs = ([{"number": 8, "url": "https://github.com/owner/repo/pull/8",
+                                       "headRefOid": self.head}] if existing else [])
+                    def race(argv, **kwargs):
+                        proc = original(argv, **kwargs)
+                        if "pr" in argv and "view" in argv:
+                            if changed == "head":
+                                self.remote_branch = "c" * 40
+                            else:
+                                self.remote_base = "d" * 40
+                        return proc
+                    self.run_command = race
+                    with self.assertRaisesRegex(bridge.BridgeError, "remote refs changed"):
+                        self.invoke()
+                    self.assertEqual(sum("create" in call for call in self.calls), 0 if existing else 1)
+        self.run_command = original
+
+    def test_existing_pr_review_state_is_preserved(self):
+        self.remote_branch = self.head
+        self.open_prs = [{"number": 8, "url": "https://github.com/owner/repo/pull/8",
+                          "headRefOid": self.head}]
+        original = self.run_command
+        def ready_pr(argv, **kwargs):
+            proc = original(argv, **kwargs)
+            if "pr" in argv and "view" in argv:
+                data = json.loads(proc.stdout)
+                data["isDraft"] = False
+                return subprocess.CompletedProcess(argv, 0, json.dumps(data), "")
+            return proc
+        self.run_command = ready_pr
+        result = self.invoke()
+        self.assertEqual(result["state"], "EXISTING_PR")
+        self.assertFalse(result["verified_pr"]["isDraft"])
+        self.assertFalse(any("push" in call or "create" in call or "ready" in call for call in self.calls))
+
+    def test_post_create_process_failure_requires_reconciliation(self):
+        original = self.run_command
+        def cannot_start(argv, **kwargs):
+            if "pr" in argv and "view" in argv:
+                raise bridge.BridgeError("Cannot start gh")
+            return original(argv, **kwargs)
+        self.run_command = cannot_start
+        with self.assertRaisesRegex(bridge.BridgeError, "reconcile before retrying"):
+            self.invoke()
+        self.assertEqual(self.remote_branch, self.head)
+        self.assertEqual(sum("create" in call for call in self.calls), 1)
+
+    def test_final_remote_read_failure_requires_reconciliation(self):
+        original = self.remote
+        def unreadable(repo, ref):
+            if any("view" in call for call in self.calls):
+                raise bridge.BridgeError("remote unavailable")
+            return original(repo, ref)
+        self.remote = unreadable
+        with self.assertRaisesRegex(bridge.BridgeError, "remote refs could not be read"):
+            self.invoke()
+        self.assertEqual(self.remote_branch, self.head)
+        self.assertEqual(sum("create" in call for call in self.calls), 1)
+
+    def test_unexpected_create_url_is_not_followed(self):
+        original = self.run_command
+        def wrong_url(argv, **kwargs):
+            proc = original(argv, **kwargs)
+            if "pr" in argv and "create" in argv:
+                return subprocess.CompletedProcess(argv, 0, "https://example.invalid/pull/1", "")
+            return proc
+        self.run_command = wrong_url
+        with self.assertRaisesRegex(bridge.BridgeError, "unexpected PR URL"):
+            self.invoke()
+        self.assertFalse(any("view" in call for call in self.calls))
+
 class OriginTests(unittest.TestCase):
     def test_child_environment_drops_git_discovery_but_preserves_other_settings(self):
         source = {"GIT_DIR": "elsewhere", "GIT_WORK_TREE": "elsewhere",
@@ -297,6 +423,57 @@ class EffectivePushDestinationTests(unittest.TestCase):
 class RealGitPublishTests(unittest.TestCase):
     """Use a disposable local Git remote and a simulated forge, never live GitHub."""
 
+    def test_parallel_ref_publication_uses_per_ref_compare_and_swap(self):
+        """Synchronize actual pushes, not sleeps: unrelated refs both succeed;
+        two candidates for one absent ref have exactly one winner.
+        """
+        with tempfile.TemporaryDirectory(prefix="wt-mission-parallel-") as tmp:
+            root = Path(tmp)
+            bare, repo = root / "remote.git", root / "repo"
+            env = bridge.child_environment(os.environ)
+            for key in list(env):
+                if key in {"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"} or key.startswith("GIT_CONFIG_KEY_") or key.startswith("GIT_CONFIG_VALUE_"):
+                    env.pop(key, None)
+            env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+                        "GIT_CONFIG_SYSTEM": os.devnull, "GIT_TERMINAL_PROMPT": "0"})
+            def git_at(*argv):
+                return subprocess.run(["git", *argv], check=True, capture_output=True, env=env,
+                                      text=True, encoding="utf-8", timeout=15).stdout.strip()
+            git_at("init", "--bare", str(bare))
+            git_at("init", "-b", "main", str(repo))
+            git_at("-C", str(repo), "config", "user.name", "Fixture")
+            git_at("-C", str(repo), "config", "user.email", "fixture@example.invalid")
+            git_at("-C", str(repo), "commit", "--allow-empty", "-m", "first")
+            first = git_at("-C", str(repo), "rev-parse", "HEAD")
+            git_at("-C", str(repo), "commit", "--allow-empty", "-m", "second")
+            second = git_at("-C", str(repo), "rev-parse", "HEAD")
+            git_at("-C", str(repo), "remote", "add", "origin", str(bare))
+            for refs in (("refs/heads/one", "refs/heads/two"),
+                         ("refs/heads/shared", "refs/heads/shared")):
+                with self.subTest(refs=refs):
+                    barrier = threading.Barrier(2, timeout=5)
+                    def bounded_run(argv, **kwargs):
+                        if "push" in argv:
+                            barrier.wait()
+                        return subprocess.run(argv, capture_output=True, text=True, encoding="utf-8",
+                                              timeout=15, **kwargs)
+                    with patch.object(bridge, "child_environment", side_effect=lambda _: dict(env)), \
+                         patch.object(bridge, "run", side_effect=bounded_run), \
+                         concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                        futures = [pool.submit(bridge.push_to_verified_destination, repo, str(bare), oid, ref)
+                                   for oid, ref in zip((first, second), refs)]
+                        results = [future.result(timeout=20) for future in futures]
+                    if refs[0] != refs[1]:
+                        self.assertEqual([proc.returncode for proc in results], [0, 0])
+                        for oid, ref in zip((first, second), refs):
+                            self.assertEqual(git_at("--git-dir", str(bare), "rev-parse", ref), oid)
+                    else:
+                        winners = [i for i, proc in enumerate(results) if proc.returncode == 0]
+                        self.assertEqual(len(winners), 1)
+                        self.assertEqual(git_at("--git-dir", str(bare), "rev-parse", refs[0]),
+                                         (first, second)[winners[0]])
+            self.assertEqual(git_at("-C", str(repo), "rev-parse", "HEAD"), second)
+
     def test_publish_pushes_the_accepted_commit_to_a_real_git_remote(self):
         with tempfile.TemporaryDirectory(prefix="wt-mission-git-") as tmp:
             root = Path(tmp)
@@ -351,6 +528,11 @@ class RealGitPublishTests(unittest.TestCase):
                 if argv[0] == "gh-fixture":
                     forge_calls.append(argv)
                     output = "[]" if "list" in argv else "https://github.com/owner/repo/pull/1"
+                    if "view" in argv:
+                        output = json.dumps({"url": argv[3], "headRefOid": head,
+                            "baseRefOid": advanced_base, "headRefName": "scope/one",
+                            "baseRefName": "main", "state": "OPEN", "isDraft": True,
+                            "isCrossRepository": False})
                     return subprocess.CompletedProcess(argv, 0, output, "")
                 kwargs.setdefault("env", test_env)
                 return real_run(argv, **kwargs)
@@ -523,7 +705,13 @@ class RealGitPublishTests(unittest.TestCase):
             seen = {"push": False, "system_setting": False, "origin_settings": False}
             def run_fixture(argv, **kwargs):
                 if argv[0] == "gh-fixture":
-                    return subprocess.CompletedProcess(argv, 0, "[]" if "list" in argv else "https://github.com/owner/repo/pull/1", "")
+                    output = "[]" if "list" in argv else "https://github.com/owner/repo/pull/1"
+                    if "view" in argv:
+                        output = json.dumps({"url": argv[3], "headRefOid": head,
+                            "baseRefOid": base, "headRefName": "scope/one",
+                            "baseRefName": "main", "state": "OPEN", "isDraft": True,
+                            "isCrossRepository": False})
+                    return subprocess.CompletedProcess(argv, 0, output, "")
                 if "push" in argv:
                     seen["push"] = True
                     # Change the named origin after its final validation, before Git runs.

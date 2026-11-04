@@ -16,6 +16,7 @@
     "tests/test_legacy_fixture_byte_custody.py",
     "tests/test_source_review_turn_chain.py",
     "tests/test_runtime_state_machine.py",
+    "tests/test_evidence_based_source_qualification.py",
     "tests/test_performance_characterization.py",
     "tests/test_mission_control.py",
     "tools/test_template_v16.py",

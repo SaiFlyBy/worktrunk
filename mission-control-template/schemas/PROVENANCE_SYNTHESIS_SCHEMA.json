@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "flyby/mission-control-provenance-synthesis/16",
+  "$id": "flyby/mission-control-provenance-synthesis/17",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -13,7 +13,7 @@
   ],
   "properties": {
     "schema": {
-      "const": "flyby/mission-control-provenance-synthesis/16"
+      "const": "flyby/mission-control-provenance-synthesis/17"
     },
     "mission_id": {
       "type": "string",
@@ -670,7 +670,6 @@
           "required": [
             "state",
             "strategy",
-            "minimum_rounds",
             "critical_partitions",
             "uninspected_critical_partitions",
             "rounds",
@@ -685,11 +684,7 @@
               ]
             },
             "strategy": {
-              "const": "ADAPTIVE_MULTI_ROUND_EXCORIATION"
-            },
-            "minimum_rounds": {
-              "type": "integer",
-              "minimum": 3
+              "const": "EVIDENCE_BASED_QUALIFICATION"
             },
             "critical_partitions": {
               "type": "array",
@@ -719,7 +714,8 @@
                   "focus",
                   "evidence_ref",
                   "findings",
-                  "disposition"
+                  "disposition",
+                  "evidence_sha256"
                 ],
                 "properties": {
                   "round": {
@@ -735,10 +731,8 @@
                     "minLength": 1
                   },
                   "evidence_ref": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
+                    "type": "string",
+                    "minLength": 1
                   },
                   "findings": {
                     "type": "integer",
@@ -759,10 +753,7 @@
                     "minLength": 1
                   },
                   "evidence_sha256": {
-                    "type": [
-                      "string",
-                      "null"
-                    ],
+                    "type": "string",
                     "pattern": "^[0-9a-f]{64}$"
                   }
                 }

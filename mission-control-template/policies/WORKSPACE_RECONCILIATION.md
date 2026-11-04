@@ -31,7 +31,7 @@ Useful historical facts may be archived, but stale adjudication has zero authori
 9. Load `handoff/WORKSPACE_RECONCILIATION.json` and only then close the mission.
 10. Archive/remove temporary workspaces only after the canonical reconciliation artifact is immutable and closure is complete.
 
-## Adversarial questions
+## Reconciliation checks
 
 The verifier should actively ask:
 

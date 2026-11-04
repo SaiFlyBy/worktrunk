@@ -477,6 +477,47 @@ def push_to_verified_destination(repo: Path, destination: str, candidate: str,
                     f"--force-with-lease={branch_ref}:", "origin", f"{candidate}:{branch_ref}"], env=env)
 
 
+def verify_publication(repo: Path, gh: str, repository: str, url: str,
+                       branch: str, base: str, candidate: str, observed_base: str,
+                       *, require_draft: bool) -> dict:
+    """Observe the published PR and refs, without claiming a cross-service transaction.
+
+    Git's lease protects the branch write, not a later forge operation. Reconcile
+    after that operation before issuing a success receipt. Other writers remain
+    free to advance refs after these observations; acceptance must still bind OIDs.
+    """
+    pending = "Publication could not be verified; branch and any PR were preserved; reconcile before retrying"
+    if not isinstance(url, str) or not re.fullmatch(
+            r"https://github\.com/" + re.escape(repository) + r"/pull/[1-9][0-9]*", url, re.IGNORECASE):
+        raise BridgeError(pending + ": unexpected PR URL")
+    try:
+        view = run([gh, "pr", "view", url, "--repo", repository, "--json",
+                    "url,headRefOid,baseRefOid,headRefName,baseRefName,state,isDraft,isCrossRepository"], cwd=repo)
+    except BridgeError as exc:
+        raise BridgeError(pending + ": PR lookup could not start") from exc
+    if view.returncode:
+        raise BridgeError(pending + ": PR lookup failed")
+    try:
+        pr = json.loads(view.stdout)
+    except ValueError as exc:
+        raise BridgeError(pending + ": invalid PR response") from exc
+    if (not isinstance(pr, dict) or not isinstance(pr.get("url"), str)
+            or pr["url"].casefold() != url.casefold()
+            or pr.get("headRefOid") != candidate or pr.get("baseRefOid") != observed_base
+            or pr.get("headRefName") != branch or pr.get("baseRefName") != base
+            or pr.get("state") != "OPEN" or pr.get("isCrossRepository") is not False
+            or (require_draft and pr.get("isDraft") is not True)):
+        raise BridgeError(pending + ": PR no longer matches the accepted candidate and observed base")
+    try:
+        head_now = remote_head(repo, f"refs/heads/{branch}")
+        base_now = remote_head(repo, f"refs/heads/{base}")
+    except BridgeError as exc:
+        raise BridgeError(pending + ": remote refs could not be read") from exc
+    if head_now != candidate or base_now != observed_base:
+        raise BridgeError(pending + ": remote refs changed during publication")
+    return pr
+
+
 def publish(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
     report = scope_report(root, args.cell)
@@ -533,7 +574,11 @@ def publish(args: argparse.Namespace) -> None:
         pr = existing_prs[0]
         if existing != candidate or str(pr.get("headRefOid", "")).lower() != candidate:
             raise BridgeError("Existing PR or remote branch differs from accepted head")
-        print(json.dumps({"state": "EXISTING_PR", "pr": pr, "head_sha": candidate}, indent=2))
+        verified = verify_publication(repo, args.gh, repository, pr.get("url", ""),
+                                      workspace["branch"], args.base, candidate, observed_base,
+                                      require_draft=False)
+        print(json.dumps({"state": "EXISTING_PR", "pr": pr, "head_sha": candidate,
+                          "base_sha": observed_base, "verified_pr": verified}, indent=2))
         return
     if existing is None:
         # Re-read immediately before upload. The empty expected value is an
@@ -554,7 +599,10 @@ def publish(args: argparse.Namespace) -> None:
     if create.returncode:
         raise BridgeError("PR creation did not confirm success; reconcile the remote PR before retrying. "
                           + (create.stderr or create.stdout).strip())
-    print(json.dumps({"state": "DRAFT_PR_CREATED", "url": create.stdout.strip(),
+    verified = verify_publication(repo, args.gh, repository, create.stdout.strip(),
+                                  workspace["branch"], args.base, candidate, observed_base,
+                                  require_draft=True)
+    print(json.dumps({"state": "DRAFT_PR_CREATED", "url": verified["url"],
                       "head_sha": candidate, "base_sha": observed_base, "compiled_base_sha": base_sha}, indent=2))
 
 
