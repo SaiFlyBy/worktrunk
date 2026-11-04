@@ -6,6 +6,7 @@ import argparse
 import importlib.util
 import json
 import py_compile
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -376,6 +377,13 @@ class TemplateCoherenceSuite(unittest.TestCase):
             template.mkdir(parents=True)
             marker = template / "marker.txt"
             marker.write_text("clean\n", encoding="utf-8")
+            (repo / ".gitignore").write_text("ignored-template/\nmission-control-template/schemas/ignored-*.json\n", encoding="utf-8")
+            for relative in ("TEMPLATE.json", "schemas/schema.json", "policies/policy.md",
+                             "tools/mc.py", "tools/wt_mission.py", "tools/schema_subset.py",
+                             "tests/test_mission_control.py"):
+                asset = template / relative
+                asset.parent.mkdir(parents=True, exist_ok=True)
+                asset.write_text("fixture\n", encoding="utf-8")
             commands = (
                 ["git", "init"],
                 ["git", "config", "user.name", "Mission Control Test"],
@@ -390,6 +398,32 @@ class TemplateCoherenceSuite(unittest.TestCase):
             self.assertEqual("CLEAN_COMMIT", clean["template_source_state"])
             self.assertEqual(head, clean["template_commit"])
             self.assertEqual(head, clean["template_base_commit"])
+
+            packaged = repo / "ignored-template" / "mission-control-template"
+            shutil.copytree(template, packaged)
+            unversioned = mc._template_provenance(packaged)
+            self.assertEqual("UNVERSIONED", unversioned["template_source_state"])
+            self.assertIsNone(unversioned["template_commit"])
+            self.assertIsNone(unversioned["template_base_commit"])
+
+            hidden_asset = template / "schemas" / "ignored-extra.json"
+            hidden_asset.write_text("{}\n", encoding="utf-8")
+            ignored_dirty = mc._template_provenance(template)
+            self.assertEqual("DIRTY_WORKTREE", ignored_dirty["template_source_state"])
+            self.assertEqual(head, ignored_dirty["template_base_commit"])
+            hidden_asset.unlink()
+
+            indexed_asset = template / "schemas" / "schema.json"
+            indexed_path = "mission-control-template/schemas/schema.json"
+            for flag, clear in (("--assume-unchanged", "--no-assume-unchanged"),
+                                ("--skip-worktree", "--no-skip-worktree")):
+                subprocess.run(["git", "update-index", flag, indexed_path], cwd=repo, check=True, capture_output=True)
+                indexed_asset.write_text("changed despite index flag\n", encoding="utf-8")
+                flagged = mc._template_provenance(template)
+                self.assertEqual("DIRTY_WORKTREE", flagged["template_source_state"], flag)
+                self.assertIsNone(flagged["template_commit"], flag)
+                indexed_asset.write_text("fixture\n", encoding="utf-8")
+                subprocess.run(["git", "update-index", clear, indexed_path], cwd=repo, check=True, capture_output=True)
 
             marker.write_text("dirty\n", encoding="utf-8")
             dirty = mc._template_provenance(template)

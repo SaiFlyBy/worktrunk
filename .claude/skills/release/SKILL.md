@@ -60,7 +60,7 @@ metadata:
     gh run list --workflow=release.yaml --event=push --branch=vX.Y.Z --limit 1 --json databaseId --jq '.[0].databaseId'
     ```
 
-`release.yaml` builds binaries and publishes a GitHub release. External package-registry publication is not configured for the fork. The binary archives and installers do not currently include the Mission Control template; use a matching source checkout for that integration.
+`release.yaml` builds binaries and publishes a GitHub release. External package-registry publication is not configured for the fork. Platform archives include the committed Mission Control template and its attribution; extract the archive for the integrated tool. The generated shell and PowerShell installers install Worktrunk binaries only. For local dist commands, run `pwsh -NoProfile -File dev/stage-mission-control.ps1` first in a clean checkout.
 
 ## Data-Loss Surface Review
 

@@ -72,6 +72,17 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Test release staging
+        env:
+          GH_TOKEN: ""
+          GITHUB_TOKEN: ""
+        run: python3 .github/tests/test_release_staging.py
+      - name: Stage committed Mission Control inputs
+        shell: pwsh
+        env:
+          GH_TOKEN: ""
+          GITHUB_TOKEN: ""
+        run: ./dev/stage-mission-control.ps1
       - name: Install dist
         # we specify bash to get pipefail; it guards against the `curl` command
         # failing. otherwise `sh` won't catch that `curl` returned non-0
@@ -134,6 +145,12 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Stage committed Mission Control inputs
+        shell: pwsh
+        env:
+          GH_TOKEN: ""
+          GITHUB_TOKEN: ""
+        run: ./dev/stage-mission-control.ps1
       - name: Install Rust non-interactively if not already installed
         if: ${{ matrix.container }}
         run: |
@@ -202,6 +219,12 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Stage committed Mission Control inputs
+        shell: pwsh
+        env:
+          GH_TOKEN: ""
+          GITHUB_TOKEN: ""
+        run: ./dev/stage-mission-control.ps1
       - name: Install cached dist
         uses: actions/download-artifact@v8
         with:
@@ -259,6 +282,12 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Stage committed Mission Control inputs
+        shell: pwsh
+        env:
+          GH_TOKEN: ""
+          GITHUB_TOKEN: ""
+        run: ./dev/stage-mission-control.ps1
       - name: Install cached dist
         uses: actions/download-artifact@v8
         with:
