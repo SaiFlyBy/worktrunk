@@ -84,6 +84,126 @@ def mc(root: Path, *args: str) -> str:
                            "Mission Control " + " ".join(args[:2]))
 
 
+
+# This child process imports the mission's own sealed runtime in isolation.
+# Its lock gives one coherent observation; it does not reserve a queue claim or
+# authenticate an external provider. The actual settlement remains mc's job.
+_SETTLEMENT_SNAPSHOT = r'''
+import importlib.util
+import json
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1]).resolve()
+cell = sys.argv[2]
+attempt = int(sys.argv[3])
+inputs = [Path(value) for value in sys.argv[4:7]]
+runtime = root / "runtime" / "tools" / "mc.py"
+sys.path.insert(0, str(runtime.parent))
+spec = importlib.util.spec_from_file_location("_frozen_mission_runtime", runtime)
+if spec is None or spec.loader is None:
+    raise RuntimeError("Frozen Mission Control runtime cannot be loaded")
+mc = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mc)
+required = ("mission_control_lock", "_doctor_or_fail", "_load_v16",
+            "resolve_ref", "sha256", "load_json")
+missing = [name for name in required if not callable(getattr(mc, name, None))]
+if missing:
+    print("unsupported frozen mission runtime: missing " + ", ".join(missing), file=sys.stderr)
+    sys.exit(2)
+
+def canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+with mc.mission_control_lock(root):
+    if not mc._doctor_or_fail(root):
+        raise RuntimeError("Mission Control cannot validate recorded evidence")
+    _, state = mc._load_v16(root)
+    record = state.get("cells", {}).get(cell)
+    if not isinstance(record, dict) or record.get("attempt") != attempt:
+        raise RuntimeError("Settlement attempt is stale or missing")
+    if record.get("state") not in {"ACCEPTED", "REJECTED", "FAILED", "BLOCKED", "CANDIDATE"}:
+        raise RuntimeError("Settlement has not been recorded")
+    history = [item for item in record.get("attempt_history", [])
+               if isinstance(item, dict) and item.get("attempt") == attempt]
+    if len(history) != 1 or history[0].get("state") != record["state"]:
+        raise RuntimeError("Settlement history is missing or ambiguous")
+    item = history[0]
+    for identity in ("worker_identity", "verifier_identity"):
+        if not record.get(identity) or record.get(identity) != item.get(identity):
+            raise RuntimeError("Settlement custody differs from attempt history")
+    for prefix, supplied in zip(("result", "context_receipt", "adjudication"), inputs):
+        ref, digest = record.get(prefix + "_ref"), record.get(prefix + "_sha256")
+        if (not isinstance(ref, str) or not isinstance(digest, str)
+                or item.get(prefix + "_ref") != ref or item.get(prefix + "_sha256") != digest):
+            raise RuntimeError("Settlement evidence differs from attempt history")
+        recorded = mc.resolve_ref(root, ref)
+        if (mc.sha256(recorded) != digest
+                or canonical(mc.load_json(recorded)) != canonical(mc.load_json(supplied))):
+            raise RuntimeError("Settlement evidence is different or has changed")
+    print(json.dumps({
+        "state": record["state"], "cell": cell, "attempt": attempt,
+        "result_ref": record["result_ref"],
+        "context_receipt_ref": record["context_receipt_ref"],
+        "adjudication_ref": record["adjudication_ref"],
+        "reconciled": True,
+    }))
+'''
+
+
+def settle_reconciled(args: argparse.Namespace) -> dict:
+    """Submit once and reconcile an identical recorded attempt after an uncertain reply.
+
+    The snapshot is an observation under the frozen Mission Control lock, not
+    authority to complete an ADE task or launch another provider.
+    """
+    root = Path(args.root).resolve()
+    if not re.fullmatch(r"[1-9][0-9]*", str(args.attempt)):
+        raise BridgeError("Settlement attempt must be a positive integer")
+    runtime = root / "runtime" / "tools" / "mc.py"
+    if not runtime.is_file():
+        raise BridgeError(f"Mission runtime is missing: {runtime}")
+    values = [read_json(Path(value).resolve()) for value in
+              (args.result, args.context_receipt, args.adjudication)]
+    # Keep each submitted object stable even if the caller edits its source file
+    # while the mission runtime is validating and recording the evidence.
+    with tempfile.TemporaryDirectory(prefix="wt-mission-settle-") as temp:
+        paths = [Path(temp) / name for name in ("result.json", "receipt.json", "adjudication.json")]
+        for path, value in zip(paths, values):
+            path.write_text(json.dumps(value, sort_keys=True), encoding="utf-8")
+        proc = run([sys.executable, str(runtime), "settle", "--root", str(root),
+                    "--cell", args.cell, "--attempt", str(args.attempt),
+                    "--result", str(paths[0]), "--context-receipt", str(paths[1]),
+                    "--adjudication", str(paths[2])])
+        if proc.returncode == 0:
+            try:
+                result = json.loads(proc.stdout)
+            except ValueError as exc:
+                raise BridgeError("Settlement succeeded but its response was unreadable; reconcile before continuing") from exc
+            if (not isinstance(result, dict) or result.get("cell") != args.cell
+                    or result.get("state") not in {"ACCEPTED", "REJECTED", "FAILED", "BLOCKED", "CANDIDATE"}):
+                raise BridgeError("Settlement response did not identify the expected cell; reconcile before continuing")
+            result["attempt"] = int(args.attempt)
+            result["reconciled"] = False
+            return result
+        snapshot = run([sys.executable, "-I", "-c", _SETTLEMENT_SNAPSHOT,
+                        str(root), args.cell, str(args.attempt), *map(str, paths)])
+        if snapshot.returncode:
+            detail = (proc.stderr or proc.stdout).strip()
+            check = (snapshot.stderr or snapshot.stdout).strip()
+            reason = check.splitlines()[-1][:500] if check else ""
+            raise BridgeError("Settlement did not succeed and identical current evidence could not be reconciled"
+                              + (f": {detail}" if detail else "")
+                              + (f"; reconciliation check: {reason}" if reason else ""))
+        try:
+            result = json.loads(snapshot.stdout)
+        except ValueError as exc:
+            raise BridgeError("Settlement reconciliation returned invalid JSON") from exc
+        if not isinstance(result, dict):
+            raise BridgeError("Settlement reconciliation returned an invalid result")
+        return result
+
+
 def cell_info(root: Path, cell_id: str) -> tuple[dict, dict, dict]:
     mc(root, "doctor")
     dag = read_json(root / "control" / "EXECUTION_DAG.json")
@@ -630,6 +750,7 @@ def main() -> int:
     settle = sub.add_parser("settle", help="Submit worker and independent verifier evidence")
     for flag in ("root", "cell", "attempt", "result", "context-receipt", "adjudication"):
         settle.add_argument("--" + flag, required=True)
+    settle.add_argument("--reconcile", action="store_true", help="Reconcile an identical previously settled attempt")
     close = sub.add_parser("reconcile", help="Load workspace reconciliation, optionally close")
     close.add_argument("--root", required=True)
     close.add_argument("--file", required=True)
@@ -645,9 +766,12 @@ def main() -> int:
         elif args.command == "publish":
             publish(args)
         elif args.command == "settle":
-            print(mc(Path(args.root).resolve(), "settle", "--cell", args.cell, "--attempt", args.attempt,
-                     "--result", args.result, "--context-receipt", args.context_receipt,
-                     "--adjudication", args.adjudication).strip())
+            if args.reconcile:
+                print(json.dumps(settle_reconciled(args), indent=2))
+            else:
+                print(mc(Path(args.root).resolve(), "settle", "--cell", args.cell, "--attempt", args.attempt,
+                         "--result", args.result, "--context-receipt", args.context_receipt,
+                         "--adjudication", args.adjudication).strip())
         else:
             root = Path(args.root).resolve()
             print(mc(root, "workspace", "load", "--file", args.file).strip())

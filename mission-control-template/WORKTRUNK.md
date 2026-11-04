@@ -33,7 +33,8 @@ worktree in place for inspection. The bridge does not start or replay hooks:
 run approved setup only after dispatch has granted the cell's resource claims.
 
 Omit both `--worker` and `--verifier` to register without dispatch.
-Mission Control's ordinary `dispatch` command can start it later. A conflict
+Mission Control's ordinary `dispatch` command can assign it later; dispatch does not
+launch a provider. A conflict
 in the class or resource claims remains a Mission Control dispatch error.
 
 Inspect the independent adjudication, requirement links, candidate head and
@@ -53,6 +54,15 @@ python path/to/mission/runtime/tools/wt_mission.py settle \
   --root path/to/mission --cell M000 --attempt 1 \
   --result result.json --context-receipt receipt.json --adjudication adjudication.json
 ```
+
+If the settlement response was lost, repeat that command with `--reconcile`.
+The bridge calls the mission's frozen settlement runtime and accepts an existing
+result only when the current attempt, custody and all three recorded evidence
+objects match. A conflicting or older attempt is rejected. `reconciled: true`
+is a point-in-time observation, not provider authentication, queue completion,
+a continuing claim, or permission to start another provider. For an already
+initialized mission, run the updated template's `tools/wt_mission.py` against
+its `--root`; the mission's locked runtime and contracts stay unchanged.
 
 An explicitly requested publication uses the accepted workspace head and opens
 one draft PR. It checks every effective push destination against the compiled

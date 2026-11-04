@@ -23,6 +23,33 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(bridge)
 
 
+
+class SettlementCompatibilityTests(unittest.TestCase):
+    def test_unsupported_frozen_runtime_reports_the_missing_reconciliation_capability(self):
+        with tempfile.TemporaryDirectory(prefix="wt-mission-old-runtime-") as temp:
+            root = Path(temp) / "mission"
+            runtime = root / "runtime" / "tools" / "mc.py"
+            runtime.parent.mkdir(parents=True)
+            runtime.write_text(
+                "import sys\nif __name__ == '__main__':\n"
+                "    print('settlement failed', file=sys.stderr)\n    sys.exit(1)\n",
+                encoding="utf-8",
+            )
+            evidence = []
+            for name in ("result", "receipt", "adjudication"):
+                path = root / f"{name}.json"
+                path.write_text("{}", encoding="utf-8")
+                evidence.append(path)
+            proc = subprocess.run(
+                [bridge.sys.executable, str(Path(bridge.__file__)), "settle",
+                 "--root", str(root), "--cell", "A000", "--attempt", "1",
+                 "--result", str(evidence[0]), "--context-receipt", str(evidence[1]),
+                 "--adjudication", str(evidence[2]), "--reconcile"],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertNotEqual(0, proc.returncode)
+            self.assertIn("unsupported frozen mission runtime", proc.stderr)
+
 class PublishTests(unittest.TestCase):
     def setUp(self) -> None:
         self.base = "a" * 40
