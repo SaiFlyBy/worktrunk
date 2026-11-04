@@ -70,6 +70,29 @@ python path/to/mission/runtime/tools/wt_mission.py publish \
   --title "Complete one coherent scope" --body "Evidence and limitations"
 ```
 
+Before upload, the bridge checks each accepted same-repository mutation
+dependency against the exact selected base. An accepted dependency head
+already in that base is recorded as history; an unlanded dependency blocks
+the child scope. A structurally validated, evidence-bound handoff remains
+one scope and is checked without requiring its source head to be a separate PR.
+Other-repository dependencies are reported as unassessed; an ambiguous or
+non-GitHub repository identity blocks this GitHub-specific check.
+
+If a dependency was squash-merged or rebased, supply `--dependency-pr M100=42`
+for that cell, repeating the option for each relevant dependency. The bridge
+checks GitHub's current merged-PR metadata, accepted head, selected base branch,
+and merge-result ancestry, then repeats that observation around publication.
+GitHub describes `headRefOid` as the associated head ref; its documentation
+does not promise a cryptographically immutable merge-time head. The operator
+must verify that correspondence independently. Merge history does not prove CI
+passed, prevent later reverts, or make prior evidence valid for a changed base.
+Git and GitHub checks are not atomic; a changed or unreadable result requires
+reconciliation, and any branch or PR already created is preserved.
+
+Already-initialized missions keep their frozen bridge. To use this guard with
+one of them, run the updated template's `tools/wt_mission.py` against its
+`--root`; its locked mission runtime and contracts remain unchanged.
+
 Publication checks that the current remote base is an ancestor of the exact
 independently accepted candidate. If main advanced but was included before
 verification, the scope can proceed without a separate aggregate branch. If

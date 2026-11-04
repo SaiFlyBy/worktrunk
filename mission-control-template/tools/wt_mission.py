@@ -316,6 +316,227 @@ def changed_paths(repo: Path, old: str, new: str) -> list[str]:
     return paths
 
 
+
+def _dependency_ancestor(repo: Path, older: str, newer: str) -> bool:
+    if not re.fullmatch(r"[0-9a-f]{40}", older) or not re.fullmatch(r"[0-9a-f]{40}", newer):
+        raise BridgeError("Dependency ancestry requires exact commit IDs")
+    proc = run(["git", "-C", str(repo), "merge-base", "--is-ancestor", older, newer])
+    if proc.returncode == 0:
+        return True
+    if proc.returncode == 1:
+        return False
+    raise BridgeError(f"Cannot determine dependency ancestry (Git exit {proc.returncode}); fetch and reconcile")
+
+
+def _accepted_dependency(root: Path, cell: dict, record: dict) -> tuple[str, dict]:
+    cell_id = str(cell.get("cell_id", ""))
+    target = cell.get("target")
+    if record.get("state") != "ACCEPTED" or not isinstance(target, dict):
+        raise BridgeError(f"Dependency {cell_id} is not an independently accepted target")
+    evidence = {}
+    values = {}
+    for kind in ("result", "context_receipt", "adjudication"):
+        ref, digest = record.get(kind + "_ref"), record.get(kind + "_sha256")
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise BridgeError(f"Dependency {cell_id} has no valid {kind} digest")
+        try:
+            path = safe_ref(root, ref)
+            with path.open("rb") as stream:
+                raw = stream.read(8_000_001)
+            if len(raw) > 8_000_000:
+                raise BridgeError("Dependency evidence exceeds the 8 MB limit")
+            if hashlib.sha256(raw).hexdigest() != digest:
+                raise BridgeError("Dependency evidence digest changed")
+            value = json.loads(raw.decode("utf-8"))
+            if not isinstance(value, dict):
+                raise BridgeError("Dependency evidence is not an object")
+            values[kind] = value
+        except (OSError, ValueError, UnicodeError, BridgeError) as exc:
+            raise BridgeError(f"Cannot validate dependency {cell_id} {kind} evidence") from exc
+        evidence[kind] = {"ref": ref, "sha256": digest}
+    if values["adjudication"].get("decision") != "ACCEPTED":
+        raise BridgeError(f"Dependency {cell_id} lacks an accepted adjudication")
+    outcomes = values["result"].get("target_outcomes")
+    if not isinstance(outcomes, list) or len(outcomes) != 1 or not isinstance(outcomes[0], dict):
+        raise BridgeError(f"Dependency {cell_id} lacks one accepted target outcome")
+    outcome = outcomes[0]
+    head, base = str(outcome.get("head_sha", "")).lower(), str(target.get("base_sha", "")).lower()
+    if (outcome.get("repository") != target.get("repository") or outcome.get("baseline_sha") != base
+            or not re.fullmatch(r"[0-9a-f]{40}", head)):
+        raise BridgeError(f"Dependency {cell_id} outcome does not bind its target")
+    return head, evidence
+
+
+def _handoff_lineage(root: Path, cells: dict[str, dict], records: dict, current: str,
+                     repo: Path, candidate: str, observed_base: str) -> set[str]:
+    """Recognize only a fully evidence-bound, structurally consistent continuation."""
+    lineage: set[str] = set()
+    visited: set[str] = set()
+    while current not in visited:
+        visited.add(current)
+        child = cells[current]
+        objective = child.get("objective")
+        if not isinstance(objective, str) or HANDOFF_MARKER not in objective:
+            break
+        prefix, encoded = objective.split(HANDOFF_MARKER, 1)
+        try:
+            payload = json.loads(encoded)
+        except ValueError:
+            break
+        if not isinstance(payload, dict):
+            break
+        predecessor = payload.get("source_cell")
+        if not isinstance(predecessor, str) or predecessor not in cells or predecessor == current:
+            break
+        parent = cells[predecessor]
+        record = records.get(predecessor)
+        if not isinstance(record, dict) or parent.get("kind") != "MUTATION":
+            break
+        head, evidence = _accepted_dependency(root, parent, record)
+        target = parent.get("target")
+        preserved = set(parent) | set(child)
+        preserved -= {"cell_id", "dependencies", "objective", "acceptance"}
+        expected_deps = list(dict.fromkeys([*parent.get("dependencies", []), predecessor]))
+        expected_acceptance = list(dict.fromkeys([*parent.get("acceptance", []), *HANDOFF_ACCEPTANCE]))
+        old_objective = str(parent.get("objective", "")).split(HANDOFF_MARKER, 1)[0]
+        prior_base = str(payload.get("observed_base", "")).lower()
+        if (any(json.dumps(parent.get(key), sort_keys=True, ensure_ascii=False)
+                != json.dumps(child.get(key), sort_keys=True, ensure_ascii=False) for key in preserved)
+                or child.get("dependencies") != expected_deps
+                or child.get("acceptance") != expected_acceptance or prefix != old_objective
+                or type(payload.get("source_attempt")) is not int
+                or type(record.get("attempt")) is not int
+                or payload.get("source_attempt") != record.get("attempt")
+                or payload.get("source_head") != head
+                or payload.get("repository") != target.get("repository")
+                or payload.get("compiled_base") != str(target.get("base_sha", "")).lower()
+                or payload.get("accepted_evidence") != evidence
+                or not re.fullmatch(r"[0-9a-f]{40}", prior_base)):
+            break
+        if (not _dependency_ancestor(repo, head, candidate)
+                or not _dependency_ancestor(repo, prior_base, observed_base)
+                or not _dependency_ancestor(repo, prior_base, candidate)):
+            break
+        merge_base = git(repo, "merge-base", head, prior_base).lower()
+        if (payload.get("merge_base") != merge_base
+                or payload.get("base_changed_paths") != changed_paths(repo, merge_base, prior_base)):
+            break
+        lineage.add(predecessor)
+        current = predecessor
+    return lineage
+
+
+def _merged_dependency_pr(repo: Path, gh: str, repository: str, branch: str,
+                          cell_id: str, head: str, observed_base: str, number: str) -> dict:
+    proc = run([gh, "pr", "view", number, "--repo", repository, "--json",
+                "number,url,state,mergedAt,headRefOid,baseRefName,mergeCommit"], cwd=repo)
+    try:
+        value = json.loads(require_success(proc, f"Dependency {cell_id} PR lookup"))
+    except ValueError as exc:
+        raise BridgeError(f"Dependency {cell_id} PR lookup returned invalid JSON") from exc
+    merge = value.get("mergeCommit") if isinstance(value, dict) else None
+    merge_sha = str(merge.get("oid", "")).lower() if isinstance(merge, dict) else ""
+    expected_url = f"https://github.com/{repository}/pull/{number}"
+    if (not isinstance(value, dict) or type(value.get("number")) is not int
+            or value.get("number") != int(number)
+            or str(value.get("url", "")).casefold() != expected_url.casefold()
+            or value.get("state") != "MERGED" or not isinstance(value.get("mergedAt"), str)
+            or not value["mergedAt"].strip() or value.get("baseRefName") != branch
+            or str(value.get("headRefOid", "")).lower() != head
+            or not re.fullmatch(r"[0-9a-f]{40}", merge_sha)
+            or not _dependency_ancestor(repo, merge_sha, observed_base)):
+        raise BridgeError(f"Dependency {cell_id} PR does not establish delivery into the observed base")
+    return {"cell": cell_id, "state": "MERGED_PR", "head_sha": head,
+            "pr": expected_url, "merge_sha": merge_sha, "merged_at": value["mergedAt"]}
+
+
+def _repository_key(value: object) -> str:
+    if not isinstance(value, str) or not github_origin("https://github.com/" + value, value):
+        raise BridgeError("Dependency repository is not an unambiguous GitHub identity")
+    return value.casefold()
+
+
+def check_dependency_delivery(root: Path, cell_id: str, repo: Path, repository: str,
+                              candidate: str, observed_base: str, branch: str, gh: str,
+                              dependency_prs: dict[str, str]) -> list[dict]:
+    """Check same-repository mutation ancestors against the exact publication base.
+
+    A GitHub merged-PR result is a current delivery-history observation, not a
+    proof of CI success, merge-time head immutability, or unchanged behavior.
+    """
+    root, repo = root.resolve(), repo.resolve()
+    dag = read_json(root / "control" / "EXECUTION_DAG.json")
+    state = read_json(root / "control" / "EXECUTION_STATE.json")
+    items = dag.get("cells")
+    if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+        raise BridgeError("Mission dependency DAG is invalid")
+    cells = {item.get("cell_id"): item for item in items if isinstance(item.get("cell_id"), str)}
+    if len(cells) != len(items) or cell_id not in cells:
+        raise BridgeError("Mission dependency DAG has missing or ambiguous cells")
+    records = state.get("cells")
+    if not isinstance(records, dict):
+        raise BridgeError("Mission dependency state is invalid")
+    lineage = _handoff_lineage(root, cells, records, cell_id, repo, candidate, observed_base)
+    pending = list(cells[cell_id].get("dependencies", []))
+    visited: set[str] = set()
+    used_prs: set[str] = set()
+    observations = []
+    while pending:
+        dependency = pending.pop()
+        if not isinstance(dependency, str) or dependency not in cells:
+            raise BridgeError("Mission dependency is missing from the DAG")
+        if dependency in visited:
+            continue
+        visited.add(dependency)
+        descriptor = cells[dependency]
+        deps = descriptor.get("dependencies", [])
+        if not isinstance(deps, list):
+            raise BridgeError(f"Dependency {dependency} has invalid predecessors")
+        pending.extend(deps)
+        if descriptor.get("kind") != "MUTATION":
+            continue
+        target = descriptor.get("target")
+        if not isinstance(target, dict):
+            raise BridgeError(f"Dependency {dependency} has no target")
+        if _repository_key(target.get("repository")) != _repository_key(repository):
+            observations.append({"cell": dependency, "state": "OTHER_REPOSITORY_UNASSESSED",
+                                 "repository": target.get("repository")})
+            continue
+        record = records.get(dependency)
+        if not isinstance(record, dict):
+            raise BridgeError(f"Dependency {dependency} has no authoritative state")
+        head, evidence = _accepted_dependency(root, descriptor, record)
+        attempt = record.get("attempt")
+        if type(attempt) is not int or attempt < 1:
+            raise BridgeError(f"Dependency {dependency} has no valid attempt identity")
+        identity = {"attempt": attempt, "evidence": evidence}
+        if dependency in lineage:
+            observations.append({"cell": dependency, "state": "SAME_SCOPE_HANDOFF",
+                                 "head_sha": head, **identity})
+        elif dependency in dependency_prs:
+            observation = _merged_dependency_pr(repo, gh, repository, branch, dependency,
+                                                head, observed_base, dependency_prs[dependency])
+            observations.append({**observation, **identity})
+            used_prs.add(dependency)
+        elif _dependency_ancestor(repo, head, observed_base):
+            observations.append({"cell": dependency, "state": "IN_BASE", "head_sha": head, **identity})
+        else:
+            raise BridgeError(f"Dependency {dependency} is not established in the selected PR base; land it first or supply its merged PR")
+    if set(dependency_prs) != used_prs:
+        raise BridgeError("Dependency PR mappings must identify distinct same-repository mutation dependencies")
+    return sorted(observations, key=lambda item: item["cell"])
+
+
+def parse_dependency_prs(values: list[str]) -> dict[str, str]:
+    result = {}
+    for value in values:
+        match = re.fullmatch(r"([A-Z][A-Z0-9_-]{0,63})=([1-9][0-9]*)", value)
+        if not match or match.group(1) in result:
+            raise BridgeError("Use each dependency PR once as CELL=NUMBER")
+        result[match.group(1)] = match.group(2)
+    return result
+
+
 def handoff(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
     if any(not re.fullmatch(r"[A-Z][A-Z0-9_-]{0,63}", value)
@@ -557,6 +778,22 @@ def publish(args: argparse.Namespace) -> None:
     ancestry = run(["git", "-C", str(repo), "merge-base", "--is-ancestor", observed_base, candidate])
     if ancestry.returncode:
         raise BridgeError("Cannot verify the current remote base is contained in the accepted head; fetch and reassess the candidate and its evidence")
+    dependency_prs = parse_dependency_prs(getattr(args, "dependency_pr", []))
+    dependencies = check_dependency_delivery(root, args.cell, repo, repository, candidate,
+                                             observed_base, args.base, args.gh, dependency_prs)
+    for dependency in dependencies:
+        if dependency["state"] == "OTHER_REPOSITORY_UNASSESSED":
+            print(f"wt-mission: Dependency {dependency['cell']} targets another repository and was not checked",
+                  file=sys.stderr)
+
+    def recheck_dependencies() -> None:
+        if dependencies:
+            mc(root, "doctor")
+            current = check_dependency_delivery(root, args.cell, repo, repository, candidate,
+                                                observed_base, args.base, args.gh, dependency_prs)
+            if current != dependencies or remote_head(repo, base_ref) != observed_base:
+                raise BridgeError("Dependencies or remote base changed; publication requires reconciliation")
+
     existing = remote_head(repo, branch_ref)
     if existing is not None and existing != candidate:
         raise BridgeError("Remote branch already exists at a different commit; it was not changed")
@@ -577,10 +814,13 @@ def publish(args: argparse.Namespace) -> None:
         verified = verify_publication(repo, args.gh, repository, pr.get("url", ""),
                                       workspace["branch"], args.base, candidate, observed_base,
                                       require_draft=False)
+        recheck_dependencies()
         print(json.dumps({"state": "EXISTING_PR", "pr": pr, "head_sha": candidate,
-                          "base_sha": observed_base, "verified_pr": verified}, indent=2))
+                          "base_sha": observed_base, "verified_pr": verified,
+                          "dependencies": dependencies}, indent=2))
         return
     if existing is None:
+        recheck_dependencies()
         # Re-read immediately before upload. The empty expected value is an
         # atomic create-only lease: Git refuses the update if the ref exists,
         # even when a concurrent creator chose an ancestor of the candidate.
@@ -593,6 +833,7 @@ def publish(args: argparse.Namespace) -> None:
         raise BridgeError("Remote branch does not match the accepted head; reconcile before retrying")
     if remote_head(repo, base_ref) != observed_base:
         raise BridgeError("Remote base changed after push; branch preserved, no PR created")
+    recheck_dependencies()
     create = run([args.gh, "pr", "create", "--repo", repository, "--base", args.base,
                   "--head", workspace["branch"], "--title", args.title,
                   "--body", args.body, "--draft"], cwd=repo)
@@ -602,8 +843,10 @@ def publish(args: argparse.Namespace) -> None:
     verified = verify_publication(repo, args.gh, repository, create.stdout.strip(),
                                   workspace["branch"], args.base, candidate, observed_base,
                                   require_draft=True)
+    recheck_dependencies()
     print(json.dumps({"state": "DRAFT_PR_CREATED", "url": verified["url"],
-                      "head_sha": candidate, "base_sha": observed_base, "compiled_base_sha": base_sha}, indent=2))
+                      "head_sha": candidate, "base_sha": observed_base, "compiled_base_sha": base_sha,
+                      "dependencies": dependencies}, indent=2))
 
 
 def main() -> int:
@@ -627,6 +870,8 @@ def main() -> int:
     for flag in ("root", "cell", "base", "title", "body"):
         pr.add_argument("--" + flag, required=True)
     pr.add_argument("--gh", default="gh")
+    pr.add_argument("--dependency-pr", action="append", default=[], metavar="CELL=NUMBER",
+                    help="Verify a merged same-repository dependency PR (repeatable)")
     settle = sub.add_parser("settle", help="Submit worker and independent verifier evidence")
     for flag in ("root", "cell", "attempt", "result", "context-receipt", "adjudication"):
         settle.add_argument("--" + flag, required=True)
