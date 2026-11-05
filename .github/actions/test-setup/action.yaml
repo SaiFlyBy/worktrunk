@@ -19,19 +19,19 @@ runs:
   using: composite
   steps:
     - name: Install cargo-insta
-      uses: baptiste0928/cargo-install@v3
+      uses: baptiste0928/cargo-install@8195d4f734a149db85385bb4102b42efcd373759 # v3
       with:
         crate: cargo-insta
         version: "=1.49.0"
 
     - name: Install cargo-nextest
-      uses: baptiste0928/cargo-install@v3
+      uses: baptiste0928/cargo-install@8195d4f734a149db85385bb4102b42efcd373759 # v3
       with:
         crate: cargo-nextest
         version: "=0.9.150"
 
     - name: 💰 Cache
-      uses: Swatinem/rust-cache@v2
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       with:
         # Don't cache ~/.cargo/bin. The runner-image rustup binary acts as
         # the cargo/rustc/rustup proxy; restoring a stale copy on top of a
@@ -67,6 +67,6 @@ runs:
 
     - name: Install nushell
       if: runner.os != 'Windows'
-      uses: hustcer/setup-nu@v3
+      uses: hustcer/setup-nu@eacad52a4634c4f8d17a94916f93be6856861b9c # v3
       with:
         version: '0.116.1'

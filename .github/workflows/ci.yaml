@@ -3,7 +3,9 @@ name: ci
 # Runner versions are pinned to avoid surprise breaking changes from -latest migrations.
 # Review pinned runner versions during regular maintenance.
 # - windows-2025: Pinned to current -latest equivalent
-# - ubuntu-24.04, macos-26: Pinned to current -latest equivalents
+# - macos-26: Pinned to current -latest equivalent
+# Linux Rust jobs use the repository-only Worktrunk Docker runner.
+# Server-side Actions policy 10761 must remain active and owner-only.
 
 on:
   push:
@@ -11,6 +13,9 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -25,14 +30,20 @@ env:
 
 jobs:
   lint:
-    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id) }}
-    runs-on: ubuntu-24.04
+    if: ${{ github.repository_id == '1443337118' && github.actor_id == '226779263' && github.triggering_actor == 'SaiFlyBy' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id)) }}
+    runs-on: [self-hosted, Linux, X64, worktrunk-docker]
     steps:
     - name: 📂 Checkout code
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      with:
+        persist-credentials: false
+
+    - name: Prepare dedicated Linux runner
+      if: runner.environment == 'self-hosted'
+      uses: ./.github/actions/self-hosted-setup
 
     - name: 💰 Cache
-      uses: Swatinem/rust-cache@v2
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       with:
         # Own cache (clippy builds check artifacts the shared test cache can't
         # supply), gated to main so PRs restore but never write.
@@ -40,25 +51,31 @@ jobs:
         save-if: ${{ github.ref == 'refs/heads/main' }}
 
     - name: 🔍 Pre-commit hooks
-      uses: pre-commit/action@v3.0.1
+      uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
 
     - name: Check CI privacy and admission conventions
       run: python3 .github/tests/ci_policy_test.py
 
   feature-check:
-    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id) }}
+    if: ${{ github.repository_id == '1443337118' && github.actor_id == '226779263' && github.triggering_actor == 'SaiFlyBy' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id)) }}
     # Guards the library/CLI cleave: the `cli` feature gates clap, skim,
     # crossterm, termimad, env_logger, humantime. If anything reachable from
     # `pub mod` in src/lib.rs starts using one of those crates, library
     # consumers (e.g. worktrunk-sync) would silently regain the transitive
     # dependency graph. These checks fail before that can ship.
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, worktrunk-docker]
     steps:
     - name: 📂 Checkout code
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      with:
+        persist-credentials: false
+
+    - name: Prepare dedicated Linux runner
+      if: runner.environment == 'self-hosted'
+      uses: ./.github/actions/self-hosted-setup
 
     - name: 💰 Cache
-      uses: Swatinem/rust-cache@v2
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       with:
         # Own cache (its `--no-default-features` builds want a smaller dep set
         # than the shared test cache), gated to main.
@@ -75,12 +92,12 @@ jobs:
       run: cargo check --bin wt --no-default-features --features cli
 
   test:
-    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id) }}
+    if: ${{ github.repository_id == '1443337118' && github.actor_id == '226779263' && github.triggering_actor == 'SaiFlyBy' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id)) }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-24.04
+          - os: [self-hosted, Linux, X64, worktrunk-docker]
             name: linux
           - os: macos-26
             name: macos
@@ -91,12 +108,18 @@ jobs:
 
     steps:
     - name: 📂 Checkout code
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      with:
+        persist-credentials: false
+
+    - name: Prepare dedicated Linux runner
+      if: runner.environment == 'self-hosted'
+      uses: ./.github/actions/self-hosted-setup
 
     - uses: ./.github/actions/test-setup
 
     - name: Install wt
-      uses: baptiste0928/cargo-install@v3
+      uses: baptiste0928/cargo-install@8195d4f734a149db85385bb4102b42efcd373759 # v3
       with:
         crate: worktrunk
         version: "=0.81.0"
@@ -134,7 +157,7 @@ jobs:
 
     - name: 📊 Upload test timing
       if: always()
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
         name: junit-${{ matrix.name }}
         path: target/nextest/default/junit.xml
@@ -148,16 +171,22 @@ jobs:
   # = …)]` code, which only the full `test` matrix compiles; acceptable for a
   # gate whose job is broken links and stale locks, not platform behavior.
   fast-checks:
-    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id) }}
-    runs-on: ubuntu-24.04
+    if: ${{ github.repository_id == '1443337118' && github.actor_id == '226779263' && github.triggering_actor == 'SaiFlyBy' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id)) }}
+    runs-on: [self-hosted, Linux, X64, worktrunk-docker]
     steps:
     - name: 📂 Checkout code
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      with:
+        persist-credentials: false
+
+    - name: Prepare dedicated Linux runner
+      if: runner.environment == 'self-hosted'
+      uses: ./.github/actions/self-hosted-setup
 
     - uses: ./.github/actions/test-setup
 
     - name: Install wt
-      uses: baptiste0928/cargo-install@v3
+      uses: baptiste0928/cargo-install@8195d4f734a149db85385bb4102b42efcd373759 # v3
       with:
         crate: worktrunk
         version: "=0.81.0"
@@ -167,7 +196,7 @@ jobs:
 
   # Check if Cargo/CI files changed (for conditional jobs below)
   changes:
-    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id) }}
+    if: ${{ github.repository_id == '1443337118' && github.actor_id == '226779263' && github.triggering_actor == 'SaiFlyBy' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id)) }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -177,7 +206,7 @@ jobs:
       docs: ${{ steps.filter.outputs.docs }}
     steps:
     - name: 📂 Checkout code
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
     - uses: dorny/paths-filter@v4
       id: filter
       with:
@@ -187,6 +216,7 @@ jobs:
             - 'Cargo.lock'
             - 'rust-toolchain.toml'
             - '.github/workflows/ci.yaml'
+            - '.github/actions/self-hosted-setup/**'
           docs:
             - 'docs/**'
             - 'src/cli/mod.rs'
@@ -201,10 +231,10 @@ jobs:
     if: needs.changes.outputs.cargo == 'true' || github.event_name == 'workflow_dispatch'
     steps:
     - name: 📂 Checkout code
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
     - name: 💰 Cache
-      uses: Swatinem/rust-cache@v2
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       with:
         # Own cache — `cargo msrv verify` builds with older toolchains whose
         # rustc hash never matches the shared (stable) test cache. Gated to
@@ -212,7 +242,7 @@ jobs:
         cache-bin: "false"
         save-if: ${{ github.ref == 'refs/heads/main' }}
 
-    - uses: baptiste0928/cargo-install@v3
+    - uses: baptiste0928/cargo-install@8195d4f734a149db85385bb4102b42efcd373759 # v3
       with:
         crate: cargo-msrv
         version: "=0.19.6"
@@ -226,7 +256,7 @@ jobs:
     if: needs.changes.outputs.docs == 'true' || github.event_name == 'workflow_dispatch'
     steps:
     - name: 📂 Checkout code
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
     - name: 🕷️ Check and build docs
       uses: ./.github/actions/docs-build

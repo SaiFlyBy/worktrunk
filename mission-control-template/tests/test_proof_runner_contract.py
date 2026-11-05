@@ -136,12 +136,27 @@ class ProofRunnerContractSuite(unittest.TestCase):
         self.assertIn("WORKTRUNK_MC_TEST_HANDOFF", workflow)
         self.assertIn("ubuntu-24.04", workflow)
         self.assertIn("windows-2025", workflow)
-        self.assertNotIn("self-hosted", workflow)
+        self.assertIn("runner: [self-hosted, Linux, X64, worktrunk-docker]", workflow)
+        self.assertIn("runner: windows-2025", workflow)
+        self.assertIn("name: bridge (${{ matrix.os }})", workflow)
+        self.assertIn("github.repository_id == '1443337118'", workflow)
+        self.assertIn("github.actor_id == '226779263'", workflow)
+        self.assertIn("github.triggering_actor == 'SaiFlyBy'", workflow)
+        self.assertIn("github.event.pull_request.head.repo.id == github.event.repository.id", workflow)
         self.assertNotIn("secrets.", workflow)
         actions = re.findall(r"^\s*uses:\s*([^\s#]+)", workflow, flags=re.MULTILINE)
         self.assertTrue(actions)
         for action in actions:
-            self.assertRegex(action, r"@[0-9a-f]{40}$", action)
+            if action == "./.github/actions/self-hosted-setup":
+                # This composite comes from the same exact candidate checkout.
+                setup = (REPO / ".github/actions/self-hosted-setup/action.yaml").read_text(encoding="utf-8")
+                nested = re.findall(r"^\s*uses:\s*([^\s#]+)", setup, flags=re.MULTILINE)
+                self.assertTrue(nested)
+                for dependency in nested:
+                    self.assertRegex(dependency, r"@[0-9a-f]{40}$", dependency)
+                self.assertNotIn("secrets.", setup)
+            else:
+                self.assertRegex(action, r"@[0-9a-f]{40}$", action)
 
 
 if __name__ == "__main__":

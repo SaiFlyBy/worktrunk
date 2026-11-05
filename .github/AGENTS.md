@@ -4,7 +4,13 @@ The fork keeps test results, Rust coverage, and benchmark outputs as GitHub Acti
 
 ## Admission and execution
 
-For the checked-in workflows, PR jobs that initiate tests run only when the head repository is this repository; a maintainer can deliberately bring an admitted change into a repository branch or run an authorized dispatch. Untrusted PRs can change their own workflow definitions, so these source-level guards are not an enforcement boundary. GitHub's repository setting must require approval for all external contributors to enforce that boundary. `pull_request_target` must not execute candidate code. Use GitHub-hosted runners for PR work, not a maintainer's local runner. Verify current repository settings rather than assuming they match this policy. GitHub can report a skipped job as successful for required-check evaluation; a skipped PR is not tested. Require successful checks for the admitted exact candidate before acceptance.
+GitHub Actions policy 10761 (`SaiFlyBy only`) must remain active for all workflows (`~ALL`, no exclusions), allowing only user ID 226779263. It blocks outsiders from starting workflows, including workflows changed in a pull request. Fork-PR approval settings are separate and are not a substitute for this owner-only policy. Verify the live policy before registering or starting a local runner; never relax it to make a job run.
+
+The Linux Rust jobs in `ci.yaml` and the Linux Mission Control bridge use the dedicated repository-scoped labels `[self-hosted, Linux, X64, worktrunk-docker]`. Their entry guards require this repository, the owner's original actor ID and triggering login, and a same-repository head for PRs. These source checks are defense in depth, not the external-actor enforcement boundary. Owner-initiated PR work is allowed on this dedicated runner. Windows, macOS, ARM, release publication, and all other workflows retain their existing hosted runners. Never label a Linux x64 runner as another platform or use the generic `self-hosted` label alone.
+
+The container must have its own work, tool and credential volumes, no host-directory or Docker-socket mounts, and no privileged mode. Its cleanup script is not disposable isolation: runner credentials, tool caches, and container changes can survive jobs. Only owner-admitted code may run there. Do not expose controller credentials or release secrets. Registration and security-setting changes require separate approval.
+
+`pull_request_target` must not execute candidate code. GitHub can report skipped jobs as successful for required-check evaluation; a skipped PR is not tested. Require successful checks for the admitted exact candidate before acceptance.
 
 ## Reports and release destinations
 
