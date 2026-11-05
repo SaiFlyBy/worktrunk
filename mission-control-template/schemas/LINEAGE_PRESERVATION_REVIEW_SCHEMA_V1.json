@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-lineage-preservation-review/1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "mission_id",
+    "mission_instance_id",
+    "cell_id",
+    "attempt",
+    "repository",
+    "policy_base_sha",
+    "candidate_sha",
+    "corpus_sha256",
+    "sources_sha256",
+    "synthesis_sha256",
+    "author_identity",
+    "reviewer_identity",
+    "decision",
+    "no_new_external_contribution",
+    "no_new_obligations",
+    "reviewed_source_ids",
+    "evidence"
+  ],
+  "properties": {
+    "schema": {
+      "const": "flyby/mission-control-lineage-preservation-review/1"
+    },
+    "mission_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mission_instance_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "cell_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "repository": {
+      "type": "string",
+      "minLength": 1
+    },
+    "policy_base_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "candidate_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "corpus_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "sources_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "synthesis_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "author_identity": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reviewer_identity": {
+      "type": "string",
+      "minLength": 1
+    },
+    "decision": {
+      "const": "VERIFIED_SAME_REPOSITORY_NO_NEW_HARVEST"
+    },
+    "no_new_external_contribution": {
+      "type": "boolean",
+      "const": true
+    },
+    "no_new_obligations": {
+      "type": "boolean",
+      "const": true
+    },
+    "reviewed_source_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ref",
+          "sha256"
+        ],
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "workspace_id": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

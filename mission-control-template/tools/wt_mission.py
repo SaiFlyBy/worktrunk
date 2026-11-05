@@ -518,6 +518,21 @@ def verify_publication(repo: Path, gh: str, repository: str, url: str,
     return pr
 
 
+def verify_lineage_for_publication(root: Path, cell_id: str, repository: str,
+                                   candidate: str, publication_base: str, base_ref: str) -> None:
+    corpus = read_json(root / "corpus" / "TARGET_MUTATIONS.json")
+    materialization = corpus.get("provenance_materialization", {})
+    if not isinstance(materialization, dict) or materialization.get("mode") != "SAME_REPOSITORY_NO_NEW_HARVEST":
+        return
+    if base_ref != "refs/heads/main":
+        raise BridgeError("Lineage preservation profile requires the accepted main branch")
+    preservation = materialization.get("preservation", {})
+    if not isinstance(preservation, dict) or preservation.get("repository") != repository:
+        raise BridgeError("Lineage preservation contract does not bind this target repository")
+    mc(root, "lineage", "verify", "--cell", cell_id, "--candidate", candidate,
+       "--publication-base", publication_base)
+
+
 def publish(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
     report = scope_report(root, args.cell)
@@ -557,6 +572,7 @@ def publish(args: argparse.Namespace) -> None:
     ancestry = run(["git", "-C", str(repo), "merge-base", "--is-ancestor", observed_base, candidate])
     if ancestry.returncode:
         raise BridgeError("Cannot verify the current remote base is contained in the accepted head; fetch and reassess the candidate and its evidence")
+    verify_lineage_for_publication(root, args.cell, repository, candidate, observed_base, base_ref)
     existing = remote_head(repo, branch_ref)
     if existing is not None and existing != candidate:
         raise BridgeError("Remote branch already exists at a different commit; it was not changed")
@@ -580,6 +596,7 @@ def publish(args: argparse.Namespace) -> None:
         print(json.dumps({"state": "EXISTING_PR", "pr": pr, "head_sha": candidate,
                           "base_sha": observed_base, "verified_pr": verified}, indent=2))
         return
+    verify_lineage_for_publication(root, args.cell, repository, candidate, observed_base, base_ref)
     if existing is None:
         # Re-read immediately before upload. The empty expected value is an
         # atomic create-only lease: Git refuses the update if the ref exists,
@@ -593,6 +610,7 @@ def publish(args: argparse.Namespace) -> None:
         raise BridgeError("Remote branch does not match the accepted head; reconcile before retrying")
     if remote_head(repo, base_ref) != observed_base:
         raise BridgeError("Remote base changed after push; branch preserved, no PR created")
+    verify_lineage_for_publication(root, args.cell, repository, candidate, observed_base, base_ref)
     create = run([args.gh, "pr", "create", "--repo", repository, "--base", args.base,
                   "--head", workspace["branch"], "--title", args.title,
                   "--body", args.body, "--draft"], cwd=repo)
@@ -630,6 +648,7 @@ def main() -> int:
     settle = sub.add_parser("settle", help="Submit worker and independent verifier evidence")
     for flag in ("root", "cell", "attempt", "result", "context-receipt", "adjudication"):
         settle.add_argument("--" + flag, required=True)
+    settle.add_argument("--lineage-review")
     close = sub.add_parser("reconcile", help="Load workspace reconciliation, optionally close")
     close.add_argument("--root", required=True)
     close.add_argument("--file", required=True)
@@ -645,9 +664,10 @@ def main() -> int:
         elif args.command == "publish":
             publish(args)
         elif args.command == "settle":
+            lineage = ["--lineage-review", args.lineage_review] if args.lineage_review else []
             print(mc(Path(args.root).resolve(), "settle", "--cell", args.cell, "--attempt", args.attempt,
                      "--result", args.result, "--context-receipt", args.context_receipt,
-                     "--adjudication", args.adjudication).strip())
+                     "--adjudication", args.adjudication, *lineage).strip())
         else:
             root = Path(args.root).resolve()
             print(mc(root, "workspace", "load", "--file", args.file).strip())

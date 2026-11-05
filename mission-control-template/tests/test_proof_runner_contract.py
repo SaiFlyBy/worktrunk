@@ -131,6 +131,8 @@ class ProofRunnerContractSuite(unittest.TestCase):
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("cargo build --locked --bin wt", workflow)
         self.assertIn("tests/test_wt_mission.py", workflow)
+        self.assertIn("tests/test_lineage_preservation.py", workflow)
+        self.assertIn("tests/test_lineage_lifecycle.py", workflow)
         self.assertIn("tests/test_runtime_state_machine.py", workflow)
         self.assertIn("tools' / 'test_template_v16.py", workflow)
         self.assertIn("WORKTRUNK_MC_TEST_HANDOFF", workflow)

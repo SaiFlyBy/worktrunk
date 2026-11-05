@@ -149,6 +149,82 @@ integration, qualification and closure evidence still applies. Worktrees and
 both accepted heads remain in the workspace reconciliation until their
 retention or cleanup has been independently accounted for.
 
+## Same-repository lineage preservation
+
+A new mission can opt into the sealed `lineage-preservation-v1` capability:
+
+```sh
+python path/to/template/tools/mc.py init --mission path/to/new-mission/MISSION.json --lineage-preservation
+```
+
+This creates a separate `/18` execution state and `/17` target-corpus contract.
+It does not alter or migrate an initialized mission. A successor must re-admit
+its source registry, synthesis and existing source-review evidence, verify
+their unchanged hashes and applicability, and create new candidate-specific
+independent review evidence. Existing source reviews do not by themselves
+establish the target policy or a future candidate. Keep the old mission and
+its frozen lock intact.
+
+The first profile supports only `SaiFlyBy/flybymaestro`, with `main` as its
+accepted branch. It binds `sources_provenance.yaml`,
+`external_harvest_manifest.yaml`, `PROJECT_OPERATING_CONTRACT.md` and
+`scripts/ci/verify_sources_provenance.py`. The reviewed target policy and
+validator Git blobs are pinned by the profile. A changed policy or validator,
+a different repository, omitted paths or a different accepted branch requires
+a separately reviewed profile, not a substitute file or a silent exemption.
+The corpus must supply the current reviewed base and each protected file's
+mode, Git blob and raw SHA-256. The exact candidate must descend from that base
+and preserve all four files. The single-target profile uses SHA-1 Git object
+IDs; it does not claim support for Git SHA-256 object format.
+
+The independent review must bind the exact mission instance, cell/attempt,
+candidate, base, source and synthesis bytes, distinct recorded worker and
+verifier, and retained evidence. It must examine all materially used sources
+and establish no new external contribution or obligations. Hashes and identity
+strings do not authenticate a reviewer or prove absence of undisclosed donor
+material. External contributions continue through the normal source and
+lineage-materialization rules.
+
+Pass the review at accepted mutation settlement:
+
+```sh
+python path/to/mission/runtime/tools/wt_mission.py settle \
+  --root path/to/mission --cell M000 --attempt 1 \
+  --result result.json --context-receipt receipt.json --adjudication adjudication.json \
+  --lineage-review candidate-review.json
+```
+
+The bridge checks the actual remote `main` at publication and refuses a stale
+reviewed base before upload. That remote observation is point-in-time, not an
+atomic transaction. The final independently accepted qualification cell also
+supplies a review bound to the final accepted candidate and a registered
+workspace:
+
+```sh
+python path/to/mission/runtime/tools/mc.py qualify --root path/to/mission \
+  --result qualification.json --lineage-review final-review.json --lineage-cell Q000
+```
+
+Qualification checks local Git objects and the recorded reviewed base; it does
+not contact the forge or establish that `main` is still current. Recheck the
+actual accepted main and affected evidence before integration. If it advanced,
+renew the preservation review against the new base; reuse unchanged source
+review only where its premises still hold. Run only checks justified by changed
+inputs and the target's own acceptance rules.
+
+The four-file proof does not run or establish success of the target's
+provenance validator. That validator also reads
+`packages/helixforge/research/source_index.csv`,
+`packages/helixforge/research/REFERENCES.md` and
+`docs/research/historical_provenance_census_2026-06-19.json`, and relies
+on its historical Git and runtime inputs. Before reusing a baseline validator
+result, compare those inputs against the exact candidate and reassess the
+other premises; when affected, run the target's required validation. Follow
+the target's own exact-head CI and merge requirements independently.
+Use one controller/initializer for a mission. This capability does not provide
+an OS sandbox or cross-process locking across different temporary directories.
+It is not currently composed with the separate execution-reservation opt-in.
+
 ## Qualification dependencies
 
 The path-scoped `mission-control-bridge` workflow builds the fork's own `wt`
