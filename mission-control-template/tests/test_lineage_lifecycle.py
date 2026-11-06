@@ -379,6 +379,20 @@ class MissionLifecycleSuite(unittest.TestCase):
                        "--candidate", candidate, "--publication-base", observed)
             fixture.mc("lineage", "verify", "--root", fixture.root, "--cell", "M002",
                        "--candidate", candidate, "--publication-base", fixture.target_base_sha, ok=False)
+            delivered = bridge.check_dependency_delivery(fixture.root, "M002", worktree, "example/target",
+                                                         candidate, observed, "main", "unused-gh", {})
+            self.assertEqual("SAME_SCOPE_HANDOFF", delivered[0]["state"])
+            self.assertIn("lineage_review", delivered[0]["evidence"])
+            self.assertEqual(parent["coordination"]["generation"], delivered[0]["coordination"]["generation"])
+            parent_review = fixture.root / parent["lineage_review_ref"]
+            parent_bytes = parent_review.read_bytes()
+            try:
+                parent_review.write_bytes(b"{}")
+                with self.assertRaisesRegex(bridge.BridgeError, "lineage_review"):
+                    bridge.check_dependency_delivery(fixture.root, "M002", worktree, "example/target",
+                                                     candidate, observed, "main", "unused-gh", {})
+            finally:
+                parent_review.write_bytes(parent_bytes)
         fixture.mc("barrier", "accept", "--root", fixture.root, "--cell", "G100")
         fixture.mc("integrate", "--root", fixture.root)
         fixture.mc("dispatch", "--root", fixture.root, "--cell", "I000")

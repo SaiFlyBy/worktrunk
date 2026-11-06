@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import shutil
 import subprocess
@@ -482,6 +483,45 @@ class RuntimeStateMachineSuite(unittest.TestCase):
         self.assertEqual(before, self.state()["cells"]["A000"])
         self.assertEqual(2, before["attempt"])
         self.assertEqual("DISPATCHED", before["state"])
+    def test_dependency_guard_consumes_real_accepted_mission_evidence(self) -> None:
+        self.accept_baseline()
+        frontier = self.reference_frontier_payload()
+        child = next(cell for cell in frontier["cells"] if cell["cell_id"] == "M001")
+        child["dependencies"].append("M000")
+        frontier_path = self.root / "dependent-frontier.json"
+        write_json(frontier_path, frontier)
+        self.mc("compile", "--root", self.root, "--frontier", frontier_path)
+        workspace = self.target_worktree("M000")
+        self.mc("workspace", "register", "--root", self.root, "--cell", "M000",
+                "--workspace-id", "ws-M000", "--branch", "mcv6/m000", "--path", workspace)
+        self.mc("dispatch", "--root", self.root, "--cell", "M000")
+        (workspace / "scope.txt").write_text("accepted parent", encoding="utf-8")
+        subprocess.run(["git", "-C", str(workspace), "add", "scope.txt"], check=True)
+        subprocess.run(["git", "-C", str(workspace), "commit", "-m", "accepted parent"],
+                       check=True, capture_output=True, text=True)
+        head = subprocess.run(["git", "-C", str(workspace), "rev-parse", "HEAD"],
+                              check=True, capture_output=True, text=True).stdout.strip().lower()
+        result = self.result("M000", extra={"target_outcomes": [{
+            "repository": "example/target", "baseline_sha": self.target_base_sha, "head_sha": head,
+        }]})
+        receipt = self.receipt("M000")
+        self.raw_settle("M000", result, receipt)
+        self.assertEqual("ACCEPTED", self.state()["cells"]["M000"]["state"])
+
+        spec = importlib.util.spec_from_file_location("real_dependency_bridge", ROOT / "tools" / "wt_mission.py")
+        self.assertIsNotNone(spec)
+        bridge = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bridge)
+        with self.assertRaisesRegex(bridge.BridgeError, "Dependency M000 is not established"):
+            bridge.check_dependency_delivery(self.root, "M001", self.target_repo, "example/target",
+                                             head, self.target_base_sha, "main", "unused-gh", {})
+        observed = bridge.check_dependency_delivery(self.root, "M001", self.target_repo, "example/target",
+                                                    head, head, "main", "unused-gh", {})
+        self.assertEqual(1, len(observed))
+        self.assertEqual(("M000", "IN_BASE", head),
+                         (observed[0]["cell"], observed[0]["state"], observed[0]["head_sha"]))
+        self.assertEqual(1, observed[0]["attempt"])
+        self.assertEqual({"result", "context_receipt", "adjudication"}, set(observed[0]["evidence"]))
 
     def test_retry_is_attempt_scoped_and_rejects_late_result(self) -> None:
         self.accept_baseline()

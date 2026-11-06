@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import concurrent.futures
 import threading
 import hashlib
@@ -48,6 +49,14 @@ class SettlementCompatibilityTests(unittest.TestCase):
             )
             self.assertNotEqual(0, proc.returncode)
             self.assertIn("unsupported frozen mission runtime", proc.stderr)
+def empty_dependency_mission(root: Path) -> None:
+    control = root / "control"
+    control.mkdir(exist_ok=True)
+    (control / "EXECUTION_DAG.json").write_text(
+        json.dumps({"cells": [{"cell_id": "M000", "kind": "MUTATION", "dependencies": []}]}),
+        encoding="utf-8",
+    )
+    (control / "EXECUTION_STATE.json").write_text(json.dumps({"cells": {}}), encoding="utf-8")
 
 
 class PublishTests(unittest.TestCase):
@@ -76,6 +85,8 @@ class PublishTests(unittest.TestCase):
         self.open_prs: list[dict] = []
         self.push_urls = ["https://github.com/owner/repo.git"]
         self.push_env = None
+        self.dependency_error = None
+        self.mission_error = None
 
     def run_command(self, argv, **kwargs):
         self.calls.append(argv)
@@ -105,7 +116,7 @@ class PublishTests(unittest.TestCase):
     def remote(self, repo, ref):
         if ref == "refs/heads/main":
             self.base_queries += 1
-            return "d" * 40 if self.change_base_after_push and self.base_queries > 1 else self.remote_base
+            return "d" * 40 if self.change_base_after_push and self.remote_branch is not None else self.remote_base
         return self.remote_branch
 
     def invoke(self):
@@ -115,10 +126,59 @@ class PublishTests(unittest.TestCase):
                  "branch": "scope/one", "remote_url": "https://github.com/owner/repo.git",
                  "repository": "owner/repo", "base_sha": self.base}), \
              patch.object(bridge, "remote_head", side_effect=self.remote), \
+             patch.object(bridge, "mc", side_effect=self.mission_error, return_value=""), \
+             patch.object(bridge, "check_dependency_delivery",
+                          side_effect=self.dependency_error, return_value=[]), \
              patch.object(bridge, "run", side_effect=self.run_command), \
              contextlib.redirect_stdout(io.StringIO()) as out:
             bridge.publish(self.args)
             return json.loads(out.getvalue())
+
+    def test_unresolved_dependency_stops_before_upload_or_pr_creation(self):
+        self.dependency_error = bridge.BridgeError("M100 dependency is not in base")
+        with self.assertRaisesRegex(bridge.BridgeError, "M100"):
+            self.invoke()
+        self.assertFalse(any("push" in call or ("pr" in call and "create" in call)
+                             for call in self.calls))
+
+    def test_new_dependency_after_an_empty_observation_blocks_upload(self):
+        self.dependency_error = [[], [{"cell": "M100", "state": "IN_BASE"}]]
+        with self.assertRaisesRegex(bridge.BridgeError, "Dependencies or remote base changed"):
+            self.invoke()
+        self.assertFalse(any("push" in call or ("pr" in call and "create" in call) for call in self.calls))
+
+    def test_changed_dependency_before_upload_blocks_upload(self):
+        observation = [{"cell": "M100", "state": "MERGED_PR"}]
+        self.dependency_error = [observation, bridge.BridgeError("dependency changed")]
+        with self.assertRaisesRegex(bridge.BridgeError, "dependency changed"):
+            self.invoke()
+        self.assertFalse(any("push" in call or ("pr" in call and "create" in call)
+                             for call in self.calls))
+
+    def test_changed_dependency_after_upload_blocks_pr_creation(self):
+        observation = [{"cell": "M100", "state": "MERGED_PR"}]
+        self.dependency_error = [observation, observation, bridge.BridgeError("dependency changed")]
+        with self.assertRaisesRegex(bridge.BridgeError, "dependency changed"):
+            self.invoke()
+        self.assertTrue(any("push" in call for call in self.calls))
+        self.assertFalse(any("pr" in call and "create" in call for call in self.calls))
+
+    def test_dependency_merge_timestamp_change_blocks_upload(self):
+        first = [{"cell": "M100", "state": "MERGED_PR", "merged_at": "2026-11-04T12:00:00Z"}]
+        second = [{"cell": "M100", "state": "MERGED_PR", "merged_at": "2026-11-04T12:01:00Z"}]
+        self.dependency_error = [first, second]
+        with self.assertRaisesRegex(bridge.BridgeError, "Dependencies or remote base changed"):
+            self.invoke()
+        self.assertFalse(any("push" in call or ("pr" in call and "create" in call)
+                             for call in self.calls))
+
+    def test_mission_authority_failure_on_recheck_stops_before_upload(self):
+        self.dependency_error = [[{"cell": "M100", "state": "IN_BASE"}]]
+        self.mission_error = bridge.BridgeError("mission authority changed")
+        with self.assertRaisesRegex(bridge.BridgeError, "mission authority changed"):
+            self.invoke()
+        self.assertFalse(any("push" in call or ("pr" in call and "create" in call)
+                             for call in self.calls))
 
     def test_accepted_head_is_created_with_absence_lease_and_draft_pr_is_opened(self):
         result = self.invoke()
@@ -611,6 +671,7 @@ class RealGitPublishTests(unittest.TestCase):
                  patch.object(bridge, "validate_push_destinations", return_value=[str(bare)]), \
                  patch.dict(os.environ, test_env, clear=True), \
                  contextlib.redirect_stdout(io.StringIO()) as output:
+                empty_dependency_mission(root)
                 bridge.publish(args)
             published = json.loads(output.getvalue())
             self.assertEqual(published["state"], "DRAFT_PR_CREATED")
@@ -676,6 +737,7 @@ class RealGitPublishTests(unittest.TestCase):
                  patch.dict(os.environ, env, clear=True), \
                  contextlib.redirect_stdout(io.StringIO()):
                 with self.assertRaisesRegex(bridge.BridgeError, "reconcile"):
+                    empty_dependency_mission(root)
                     bridge.publish(args)
             self.assertEqual(git_at("--git-dir", str(bare), "rev-parse", "refs/heads/scope/one"), base)
             self.assertFalse(any(call[0] == "gh-fixture" and "create" in call for call in calls))
@@ -759,11 +821,16 @@ class RealGitPublishTests(unittest.TestCase):
             with patch.dict(os.environ, env, clear=True):
                 rejected = bridge.push_to_verified_destination(repo, good_url, head, "refs/heads/hook-rejected")
             self.assertNotEqual(rejected.returncode, 0)
-            self.assertTrue(hook_output.exists(), f"pre-push hook did not run: {rejected.stderr}")
+            self.assertTrue(hook_output.exists(),
+                            f"pre-push hook marker missing (exit {rejected.returncode}); "
+                            f"stdout={rejected.stdout!r}; stderr={rejected.stderr!r}; "
+                            f"transport_marker={transport_output.exists()}; hook_bytes={hook.read_bytes()!r}")
             self.assertEqual(hook_output.read_text(encoding="utf-8").strip(), "origin")
             self.assertNotEqual(git_at("--git-dir", str(good), "rev-parse", "--verify",
                                       "refs/heads/hook-rejected", check=False).returncode, 0)
             hook.write_text(accepting_hook, encoding="utf-8")
+            successful_transport_output = root / "transport-success.txt"
+            env["WT_MISSION_TEST_TRANSPORT_OUTPUT"] = str(successful_transport_output)
             report = {"state": "ACCEPTED", "kind": "MUTATION",
                 "target": {"repository": "owner/repo", "base_sha": base},
                 "result": {"target_outcomes": [{"repository": "owner/repo", "baseline_sha": base, "head_sha": head}]},
@@ -809,13 +876,14 @@ class RealGitPublishTests(unittest.TestCase):
                  patch.object(bridge, "github_origin", side_effect=lambda url, repository: url == good_url), \
                  patch.object(bridge, "run", side_effect=run_fixture), \
                  contextlib.redirect_stdout(io.StringIO()) as output:
+                empty_dependency_mission(root)
                 bridge.publish(args)
             self.assertEqual(json.loads(output.getvalue())["state"], "DRAFT_PR_CREATED")
             self.assertEqual(seen, {"push": True, "system_setting": True, "origin_settings": True})
             hook_lines = hook_output.read_text(encoding="utf-8").splitlines()
             self.assertEqual(hook_lines[:2], ["origin", good_url])
             self.assertTrue(hook_lines[2].replace("\\", "/").endswith("/repo"))
-            self.assertIn("good.git", transport_output.read_text(encoding="utf-8"))
+            self.assertIn("good.git", successful_transport_output.read_text(encoding="utf-8"))
             self.assertEqual(git_at("--git-dir", str(good), "rev-parse", "refs/heads/scope/one").stdout.strip(), head)
             self.assertNotEqual(git_at("--git-dir", str(bad), "rev-parse", "--verify", "refs/heads/scope/one", check=False).returncode, 0)
 
@@ -930,6 +998,324 @@ class HandoffTests(unittest.TestCase):
         with self.assertRaisesRegex(bridge.BridgeError, "already contains"):
             self.invoke()
         self.assertEqual(self.compiled, [])
+
+
+class ScopedDependencyDeliveryTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="wt-dependency-")
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "mission"
+        self.repo = Path(self.tmp.name) / "repo"
+        self.root.mkdir()
+        self.repo.mkdir()
+        self.env = bridge.child_environment(os.environ)
+        for key in list(self.env):
+            if key in {"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"} or key.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")):
+                self.env.pop(key, None)
+        self.env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+                         "GIT_CONFIG_SYSTEM": os.devnull, "GIT_TERMINAL_PROMPT": "0"})
+        self.git("init", "-b", "main", str(self.repo))
+        self.git("-C", str(self.repo), "config", "user.name", "Fixture")
+        self.git("-C", str(self.repo), "config", "user.email", "fixture@example.invalid")
+        (self.repo / "base.txt").write_text("base\n", encoding="utf-8")
+        self.git("-C", str(self.repo), "add", "base.txt")
+        self.git("-C", str(self.repo), "commit", "-m", "base")
+        self.base = self.git("-C", str(self.repo), "rev-parse", "HEAD")
+        tree = self.git("-C", str(self.repo), "rev-parse", "HEAD^{tree}")
+        self.tree = tree
+        self.parent = self.commit([self.base], "accepted parent")
+        self.child = self.commit([self.parent], "dependent child")
+        self.squashed = self.commit([self.base], "squashed parent")
+        self.after_squash = self.commit([self.squashed], "child after squash")
+        self.advanced = self.commit([self.base], "advanced base")
+        self.combined = self.commit([self.parent, self.advanced], "handoff candidate")
+        target = {"repository": "owner/repo", "base_sha": self.base, "owned_paths": ["parent.py"]}
+        self.parent_cell = {
+            "cell_id": "M100", "kind": "MUTATION", "dependencies": [],
+            "objective": "Complete parent scope", "acceptance": ["parent behavior"],
+            "status": "PENDING", "conflict_class": "parent", "resource_claims": ["parent"],
+            "requirement_ids": ["R100"], "target": target,
+            "positive_verification": ["positive"], "negative_verification": ["negative"],
+            "rollback": "revert", "result_schema": "contracts/schemas/RESULT_SCHEMA.json",
+        }
+        self.child_cell = copy.deepcopy(self.parent_cell)
+        self.child_cell.update({"cell_id": "M200", "dependencies": ["M100"],
+                                "objective": "Complete child scope",
+                                "target": {**target, "owned_paths": ["child.py"]}})
+        record = {"state": "ACCEPTED", "attempt": 1}
+        values = {
+            "result": {"target_outcomes": [{"repository": "owner/repo",
+                "baseline_sha": self.base, "head_sha": self.parent}]},
+            "context_receipt": {"receipt": "independent fixture"},
+            "adjudication": {"decision": "ACCEPTED"},
+        }
+        for kind, value in values.items():
+            path = self.root / "evidence" / (kind + ".json")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(value), encoding="utf-8")
+            record[kind + "_ref"] = path.relative_to(self.root).as_posix()
+            record[kind + "_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.record = record
+        self.write_mission()
+
+    def git(self, *argv):
+        return subprocess.run(["git", *argv], check=True, capture_output=True,
+                              text=True, encoding="utf-8", env=self.env).stdout.strip()
+
+    def commit(self, parents, message):
+        argv = ["-C", str(self.repo), "commit-tree", self.tree]
+        for parent in parents:
+            argv.extend(["-p", parent])
+        return self.git(*argv, "-m", message)
+
+    def write_mission(self):
+        control = self.root / "control"
+        control.mkdir(exist_ok=True)
+        (control / "EXECUTION_DAG.json").write_text(
+            json.dumps({"cells": [self.parent_cell, self.child_cell]}), encoding="utf-8")
+        (control / "EXECUTION_STATE.json").write_text(
+            json.dumps({"cells": {"M100": self.record}}), encoding="utf-8")
+
+    def check(self, base, candidate, prs=None):
+        with patch.dict(os.environ, self.env, clear=True):
+            return bridge.check_dependency_delivery(
+                self.root, "M200", self.repo, "owner/repo", candidate, base,
+                "main", "fake-gh", prs or {},
+            )
+
+    def test_unlanded_parent_blocks_before_publication(self):
+        with self.assertRaisesRegex(bridge.BridgeError, "Dependency M100 is not established"):
+            self.check(self.base, self.child)
+
+    def test_parent_already_in_base_is_not_bundled(self):
+        result = self.check(self.parent, self.child)
+        self.assertEqual("IN_BASE", result[0]["state"])
+        self.assertEqual(self.parent, result[0]["head_sha"])
+
+    def test_dependency_observation_retains_and_rechecks_lineage_review(self):
+        path = self.root / "evidence/lineage-review.json"
+        path.write_text('{"candidate":"independently reviewed"}', encoding="utf-8")
+        self.record.update(lineage_review_ref=path.relative_to(self.root).as_posix(),
+                           lineage_review_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+        self.write_mission()
+        observation = self.check(self.parent, self.child)[0]
+        self.assertEqual(self.record["lineage_review_sha256"], observation["evidence"]["lineage_review"]["sha256"])
+        path.write_text("{}", encoding="utf-8")
+        with self.assertRaisesRegex(bridge.BridgeError, "lineage_review"):
+            self.check(self.parent, self.child)
+
+    def test_accepted_dependency_requires_released_hashed_writer_custody(self):
+        request = {"generation": 3, "token": "exact-generation", "binding_digest": "a" * 64,
+                   "executor_identity": "fixture-run", "phase": "UNKNOWN"}
+        self.record["coordination"] = request
+        for phase in ("LAUNCH_UNCERTAIN", "RUNNING", "UNKNOWN", "STOP_REQUESTED", "STOP_CONFIRMED"):
+            request["phase"] = phase
+            self.write_mission()
+            with self.subTest(phase=phase), self.assertRaisesRegex(bridge.BridgeError, "retains writer ownership"):
+                self.check(self.parent, self.child)
+        request["phase"] = "RELEASED"
+        for kind in ("scope_proof", "stop_observation"):
+            path = self.root / "evidence" / (kind + ".json")
+            path.write_text("{}", encoding="utf-8")
+            request[kind + "_ref"] = path.relative_to(self.root).as_posix()
+            request[kind + "_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.write_mission()
+        self.assertEqual(3, self.check(self.parent, self.child)[0]["coordination"]["generation"])
+        (self.root / request["scope_proof_ref"]).write_text('{"tampered":true}', encoding="utf-8")
+        with self.assertRaisesRegex(bridge.BridgeError, "scope_proof"):
+            self.check(self.parent, self.child)
+
+    def test_squash_or_rebase_requires_exact_merged_pr_receipt(self):
+        with self.assertRaisesRegex(bridge.BridgeError, "M100"):
+            self.check(self.squashed, self.after_squash)
+        metadata = {"number": 42, "url": "https://github.com/owner/repo/pull/42",
+                    "state": "MERGED", "mergedAt": "2026-11-04T12:00:00Z",
+                    "headRefOid": self.parent, "baseRefName": "main",
+                    "mergeCommit": {"oid": self.squashed}}
+        actual_run = bridge.run
+        def runner(argv, **kwargs):
+            if argv[0] == "fake-gh":
+                return subprocess.CompletedProcess(argv, 0, json.dumps(metadata), "")
+            return actual_run(argv, **kwargs)
+        with patch.object(bridge, "run", side_effect=runner):
+            result = self.check(self.squashed, self.after_squash, {"M100": "42"})
+            self.assertEqual("MERGED_PR", result[0]["state"])
+            metadata["headRefOid"] = self.base
+            with self.assertRaisesRegex(bridge.BridgeError, "M100"):
+                self.check(self.squashed, self.after_squash, {"M100": "42"})
+            metadata["headRefOid"] = self.parent
+            metadata["number"] = True
+            metadata["url"] = "https://github.com/owner/repo/pull/1"
+            with self.assertRaisesRegex(bridge.BridgeError, "M100"):
+                self.check(self.squashed, self.after_squash, {"M100": "1"})
+
+    def test_merged_pr_mismatches_never_establish_delivery(self):
+        valid = {"number": 42, "url": "https://github.com/owner/repo/pull/42",
+                 "state": "MERGED", "mergedAt": "2026-11-04T12:00:00Z",
+                 "headRefOid": self.parent, "baseRefName": "main",
+                 "mergeCommit": {"oid": self.squashed}}
+        actual_run = bridge.run
+        for key, value in (("number", 41), ("url", "https://github.com/other/repo/pull/42"),
+                           ("state", "OPEN"), ("mergedAt", None), ("baseRefName", "other"),
+                           ("headRefOid", self.base), ("mergeCommit", None),
+                           ("mergeCommit", {"oid": self.parent})):
+            with self.subTest(field=key, value=value):
+                metadata = {**valid, key: value}
+                def runner(argv, **kwargs):
+                    if argv[0] == "fake-gh":
+                        return subprocess.CompletedProcess(argv, 0, json.dumps(metadata), "")
+                    return actual_run(argv, **kwargs)
+                with patch.object(bridge, "run", side_effect=runner):
+                    with self.assertRaisesRegex(bridge.BridgeError, "M100"):
+                        self.check(self.squashed, self.after_squash, {"M100": "42"})
+
+    def test_same_head_with_replaced_evidence_changes_the_observation(self):
+        first = self.check(self.parent, self.child)
+        path = self.root / self.record["context_receipt_ref"]
+        path.write_text(json.dumps({"receipt": "replacement"}), encoding="utf-8")
+        self.record["context_receipt_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.write_mission()
+        second = self.check(self.parent, self.child)
+        self.assertNotEqual(first, second)
+        self.assertNotEqual(first[0]["evidence"]["context_receipt"]["sha256"],
+                            second[0]["evidence"]["context_receipt"]["sha256"])
+
+    def test_changed_dependency_evidence_is_rejected(self):
+        (self.root / self.record["result_ref"]).write_text("{}", encoding="utf-8")
+        with self.assertRaisesRegex(bridge.BridgeError, "M100"):
+            self.check(self.parent, self.child)
+
+    def test_validated_handoff_remains_one_scope_but_forgery_does_not(self):
+        evidence = {kind: {"ref": self.record[kind + "_ref"], "sha256": self.record[kind + "_sha256"]}
+                    for kind in ("result", "context_receipt", "adjudication")}
+        payload = {"source_cell": "M100", "source_attempt": 1, "source_head": self.parent,
+                   "repository": "owner/repo", "compiled_base": self.base,
+                   "observed_base": self.advanced, "merge_base": self.base,
+                   "base_changed_paths": [], "accepted_evidence": evidence}
+        self.child_cell = copy.deepcopy(self.parent_cell)
+        self.child_cell["cell_id"] = "M200"
+        self.child_cell["dependencies"] = ["M100"]
+        self.child_cell["objective"] = self.parent_cell["objective"] + bridge.HANDOFF_MARKER + json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        self.child_cell["acceptance"] = list(dict.fromkeys(
+            self.parent_cell["acceptance"] + bridge.HANDOFF_ACCEPTANCE))
+        self.write_mission()
+        result = self.check(self.advanced, self.combined)
+        self.assertEqual("SAME_SCOPE_HANDOFF", result[0]["state"])
+        self.parent_cell["target"]["base_sha"] = self.base.upper()
+        self.child_cell["target"]["base_sha"] = self.base.upper()
+        self.write_mission()
+        result = self.check(self.advanced, self.combined)
+        self.assertEqual("SAME_SCOPE_HANDOFF", result[0]["state"])
+        payload["source_attempt"] = True
+        self.child_cell["objective"] = self.parent_cell["objective"] + bridge.HANDOFF_MARKER + json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        self.write_mission()
+        with self.assertRaisesRegex(bridge.BridgeError, "M100"):
+            self.check(self.advanced, self.combined)
+        payload["source_attempt"] = 1
+        payload["source_head"] = self.base
+        self.child_cell["objective"] = self.parent_cell["objective"] + bridge.HANDOFF_MARKER + json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        self.write_mission()
+        with self.assertRaisesRegex(bridge.BridgeError, "M100"):
+            self.check(self.advanced, self.combined)
+
+
+    def test_multi_hop_handoff_keeps_other_dependencies_gated(self):
+        other_head = self.commit([self.base], "independent prerequisite")
+        other = copy.deepcopy(self.parent_cell)
+        other.update({"cell_id": "M050", "objective": "Independent prerequisite",
+                      "target": {**self.parent_cell["target"], "owned_paths": ["other.py"]}})
+        self.parent_cell["dependencies"] = ["M050"]
+
+        def record_for(name, head):
+            values = {
+                "result": {"target_outcomes": [{"repository": "owner/repo",
+                    "baseline_sha": self.base, "head_sha": head}]},
+                "context_receipt": {"receipt": name},
+                "adjudication": {"decision": "ACCEPTED"},
+            }
+            record = {"state": "ACCEPTED", "attempt": 1}
+            for kind, value in values.items():
+                path = self.root / "evidence" / name / (kind + ".json")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(value), encoding="utf-8")
+                record[kind + "_ref"] = path.relative_to(self.root).as_posix()
+                record[kind + "_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+            return record
+
+        def successor(parent, source_record, source_head, new_id, prior_base):
+            evidence = {kind: {"ref": source_record[kind + "_ref"],
+                               "sha256": source_record[kind + "_sha256"]}
+                        for kind in ("result", "context_receipt", "adjudication")}
+            merge_base = self.git("-C", str(self.repo), "merge-base", source_head, prior_base)
+            payload = {"source_cell": parent["cell_id"], "source_attempt": 1,
+                       "source_head": source_head, "repository": "owner/repo",
+                       "compiled_base": self.base, "observed_base": prior_base,
+                       "merge_base": merge_base, "base_changed_paths": [],
+                       "accepted_evidence": evidence}
+            value = copy.deepcopy(parent)
+            value["cell_id"] = new_id
+            value["dependencies"] = list(dict.fromkeys(parent["dependencies"] + [parent["cell_id"]]))
+            value["objective"] = parent["objective"].split(bridge.HANDOFF_MARKER, 1)[0] + bridge.HANDOFF_MARKER + json.dumps(
+                payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            value["acceptance"] = list(dict.fromkeys(parent["acceptance"] + bridge.HANDOFF_ACCEPTANCE))
+            return value
+
+        first = successor(self.parent_cell, self.record, self.parent, "M200", self.advanced)
+        first_record = record_for("M200", self.combined)
+        later_base = self.commit([self.advanced], "later base")
+        second = successor(first, first_record, self.combined, "M300", later_base)
+        second_candidate = self.commit([self.combined, later_base], "second candidate")
+        records = {"M050": record_for("M050", other_head), "M100": self.record, "M200": first_record}
+        control = self.root / "control"
+
+        def check(base, candidate):
+            (control / "EXECUTION_DAG.json").write_text(
+                json.dumps({"cells": [other, self.parent_cell, first, second]}), encoding="utf-8")
+            (control / "EXECUTION_STATE.json").write_text(json.dumps({"cells": records}), encoding="utf-8")
+            with patch.dict(os.environ, self.env, clear=True):
+                return bridge.check_dependency_delivery(self.root, "M300", self.repo, "owner/repo",
+                                                        candidate, base, "main", "fake-gh", {})
+
+        with self.assertRaisesRegex(bridge.BridgeError, "M050"):
+            check(later_base, second_candidate)
+        base_with_other = self.commit([later_base, other_head], "land independent prerequisite")
+        second = successor(first, first_record, self.combined, "M300", base_with_other)
+        second_candidate = self.commit([self.combined, base_with_other], "final candidate")
+        result = check(base_with_other, second_candidate)
+        self.assertEqual({"M050": "IN_BASE", "M100": "SAME_SCOPE_HANDOFF",
+                          "M200": "SAME_SCOPE_HANDOFF"},
+                         {item["cell"]: item["state"] for item in result})
+
+    def test_missing_object_is_unknown_not_proof_of_delivery(self):
+        with self.assertRaisesRegex(bridge.BridgeError, "Cannot determine dependency ancestry"):
+            self.check("f" * 40, self.child)
+
+    def test_same_repository_alias_with_different_case_cannot_bypass_the_guard(self):
+        self.parent_cell["target"]["repository"] = "Owner/Repo"
+        path = self.root / self.record["result_ref"]
+        result = json.loads(path.read_text(encoding="utf-8"))
+        result["target_outcomes"][0]["repository"] = "Owner/Repo"
+        path.write_text(json.dumps(result), encoding="utf-8")
+        self.record["result_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.write_mission()
+        with self.assertRaisesRegex(bridge.BridgeError, "Dependency M100 is not established"):
+            self.check(self.base, self.child)
+
+    def test_ambiguous_repository_alias_is_not_treated_as_an_unrelated_repository(self):
+        self.parent_cell["target"]["repository"] = "owner/repo/"
+        self.write_mission()
+        with self.assertRaisesRegex(bridge.BridgeError, "unambiguous GitHub identity"):
+            self.check(self.base, self.child)
+
+    def test_other_repository_dependency_is_explicitly_unassessed(self):
+        self.parent_cell["target"]["repository"] = "owner/other"
+        self.write_mission()
+        result = self.check(self.base, self.child)
+        self.assertEqual("OTHER_REPOSITORY_UNASSESSED", result[0]["state"])
+
 
 
 if __name__ == "__main__":
