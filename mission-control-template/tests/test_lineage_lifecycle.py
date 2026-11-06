@@ -13,6 +13,7 @@ import sys
 import unittest
 from pathlib import Path
 import test_runtime_state_machine as lifecycle
+from reservation_fixture import ReservationProtocol
 
 write_json = lifecycle.write_json
 
@@ -132,15 +133,21 @@ class MissionLifecycleSuite(unittest.TestCase):
                                            "--launch-intent-id", "lineage-intent:" + cell, **kwargs)
                     request = fixture.state()["cells"][cell]["coordination"]
                     if request["phase"] == "ADMITTED":
-                        original_mc("coordination", "launching", "--root", fixture.root, "--cell", cell,
-                                    "--generation", request["generation"], "--token", request["token"],
+                        original_mc("execution", "launching", "--root", fixture.root, "--cell", cell,
+                                    *protocol.selectors(protocol.current(cell)),
                                     "--executor-identity", "lineage-fixture:" + cell)
+                        protocol.running(cell)
                     return response
             if coordination and args and args[0] == "settle" and "--cell" in args:
                 cell = args[args.index("--cell") + 1]
                 request = fixture.state()["cells"][cell].get("coordination")
                 if request:
                     args.extend(["--generation", request["generation"], "--token", request["token"]])
+                    if reservations:
+                        selected = protocol.current(cell)
+                        if not selected.get("terminal_observation_ref"):
+                            protocol.terminal(cell)
+                        args.extend(["--binding-digest", selected["binding_digest"]])
             if args[:2] == ["sources", "load"]:
                 source = json.loads(Path(args[args.index("--file") + 1]).read_text(encoding="utf-8"))
                 row = next(item for item in source["sources"] if item["id"] == "reference-method")
@@ -197,6 +204,9 @@ class MissionLifecycleSuite(unittest.TestCase):
             return response
 
         def release(cell):
+            if reservations:
+                protocol.action("release", cell)
+                return
             request = fixture.state()["cells"][cell]["coordination"]
             evidence = fixture.root / "evidence" / (cell + "-stopped.json")
             write_json(evidence, {"fixture": "test owns this writer; no external provider or descendants remain"})
@@ -221,6 +231,14 @@ class MissionLifecycleSuite(unittest.TestCase):
         fixture.mc = mc_wrapper
         fixture.setUp()
         self.addCleanup(fixture.tearDown)
+        protocol = ReservationProtocol(fixture)
+        original_receipt = fixture.receipt
+        def receipt_wrapper(cell, **kwargs):
+            path = original_receipt(cell, **kwargs)
+            if reservations and fixture.state()["cells"][cell].get("execution_reservation"):
+                protocol.receipt_session(path, cell)
+            return path
+        fixture.receipt = receipt_wrapper
         fixture.accept_baseline()
         fixture.compile_reference()
         fixture.mc("dispatch", "--root", fixture.root, "--cell", "M000")
@@ -285,6 +303,8 @@ class MissionLifecycleSuite(unittest.TestCase):
         if coordination:
             request = fixture.state()["cells"]["M000"]["coordination"]
             fence = ["--generation", str(request["generation"]), "--token", request["token"]]
+            if reservations:
+                fence.extend(["--binding-digest", protocol.current("M000")["binding_digest"]])
         bridge_settle = subprocess.run(
             [sys.executable, str(bridge_path), *map(str, settle), "--lineage-review", str(review_path), *fence],
             capture_output=True, text=True)
@@ -296,7 +316,9 @@ class MissionLifecycleSuite(unittest.TestCase):
                                 "--reservation-id", selected["token"], "--fence", selected["generation"],
                                 "--binding-digest", selected["binding_digest"]).stdout)
             self.assertEqual(fixture.state()["cells"]["M000"]["lineage_review_sha256"],
-                             lookup["evidence_hashes"]["lineage_review_sha256"])
+                             lookup["lineage_review_sha256"])
+            self.assertEqual({"result_sha256", "context_receipt_sha256", "adjudication_sha256"}, set(lookup["evidence_hashes"]))
+            self.assertEqual(digest_json(lookup["evidence_hashes"], ensure_ascii=False), lookup["evidence_digest"])
         replay = subprocess.run(
             [sys.executable, str(bridge_path), *map(str, settle), "--lineage-review", str(review_path),
              *fence, "--reconcile"], capture_output=True, text=True)
@@ -310,9 +332,10 @@ class MissionLifecycleSuite(unittest.TestCase):
         self.assertNotEqual(0, replay.returncode)
         write_json(review_path, review)
         if coordination:
-            denied = fixture.mc("coordination", "verify", "--root", fixture.root, "--cell", "M000",
-                                "--candidate", candidate, "--publication-base", fixture.target_base_sha, ok=False)
-            self.assertIn("termination", denied.stderr.lower())
+            if not reservations:
+                denied = fixture.mc("coordination", "verify", "--root", fixture.root, "--cell", "M000",
+                                    "--candidate", candidate, "--publication-base", fixture.target_base_sha, ok=False)
+                self.assertIn("termination", denied.stderr.lower())
             release("M000")
         fixture.mc("doctor", "--root", fixture.root)
         fixture.mc("lineage", "verify", "--root", fixture.root, "--cell", "M000",

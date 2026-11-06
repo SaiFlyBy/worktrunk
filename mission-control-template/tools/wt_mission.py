@@ -100,6 +100,7 @@ attempt = int(sys.argv[3])
 inputs = [Path(value) for value in sys.argv[4:7]]
 generation, token = sys.argv[7:9]
 lineage_input = sys.argv[9] if len(sys.argv) > 9 else ""
+binding_digest = sys.argv[10] if len(sys.argv) > 10 else ""
 runtime = root / "runtime" / "tools" / "mc.py"
 sys.path.insert(0, str(runtime.parent))
 spec = importlib.util.spec_from_file_location("_frozen_mission_runtime", runtime)
@@ -129,6 +130,9 @@ with mc.mission_control_lock(root):
     coordination = record.get("coordination")
     if coordination and (str(coordination.get("generation")) != generation or coordination.get("token") != token):
         raise RuntimeError("Settlement generation is stale or missing")
+    reservation = record.get("execution_reservation")
+    if reservation and reservation.get("binding_digest") != binding_digest:
+        raise RuntimeError("Settlement reservation binding digest is stale or missing")
     history = [item for item in record.get("attempt_history", [])
                if isinstance(item, dict) and item.get("attempt") == attempt]
     if len(history) != 1 or history[0].get("state") != record["state"]:
@@ -195,10 +199,11 @@ def settle_reconciled(args: argparse.Namespace) -> dict:
             # strict parsing and the candidate/source binding checks.
             lineage_path.write_bytes(Path(args.lineage_review).resolve().read_bytes())
         lineage = ["--lineage-review", str(lineage_path)] if lineage_path else []
+        binding = ["--binding-digest", args.binding_digest] if getattr(args, "binding_digest", None) else []
         proc = run([sys.executable, str(runtime), "settle", "--root", str(root),
                     "--cell", args.cell, "--attempt", str(args.attempt),
                     "--result", str(paths[0]), "--context-receipt", str(paths[1]),
-                    "--adjudication", str(paths[2]), *fence, *lineage])
+                    "--adjudication", str(paths[2]), *fence, *lineage, *binding])
         if proc.returncode == 0:
             try:
                 result = json.loads(proc.stdout)
@@ -212,7 +217,7 @@ def settle_reconciled(args: argparse.Namespace) -> dict:
             return result
         snapshot = run([sys.executable, "-I", "-c", _SETTLEMENT_SNAPSHOT,
                         str(root), args.cell, str(args.attempt), *map(str, paths), str(args.generation or ""), str(args.token or ""),
-                        str(lineage_path or "")])
+                        str(lineage_path or ""), str(getattr(args, "binding_digest", None) or "")])
         if snapshot.returncode:
             detail = (proc.stderr or proc.stdout).strip()
             check = (snapshot.stderr or snapshot.stdout).strip()
@@ -271,6 +276,9 @@ def ledger_entry(root: Path, cell_id: str) -> dict:
 
 def prepare(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
+    if ((args.worker or args.verifier)
+            and "contracts/capabilities/execution-reservation-v1.json" in read_json(root / "TEMPLATE_LOCK.json").get("assets", {})):
+        raise BridgeError("For an execution-reservation mission, prepare without worker/verifier flags, then use execution reserve with the exact binding and launch intent")
     repo = Path(args.repo).resolve()
     cell, record, packet = cell_info(root, args.cell)
     target = packet.get("target")
@@ -1127,6 +1135,7 @@ def main() -> int:
         settle.add_argument("--" + flag, required=True)
     settle.add_argument("--generation", type=int)
     settle.add_argument("--token")
+    settle.add_argument("--binding-digest")
     settle.add_argument("--reconcile", action="store_true", help="Reconcile an identical previously settled attempt")
     settle.add_argument("--lineage-review")
     close = sub.add_parser("reconcile", help="Load workspace reconciliation, optionally close")
@@ -1145,13 +1154,14 @@ def main() -> int:
             publish(args)
         elif args.command == "settle":
             lineage = ["--lineage-review", args.lineage_review] if args.lineage_review else []
+            binding = ["--binding-digest", args.binding_digest] if args.binding_digest else []
             if args.reconcile:
                 print(json.dumps(settle_reconciled(args), indent=2))
             else:
                 print(mc(Path(args.root).resolve(), "settle", "--cell", args.cell, "--attempt", args.attempt,
                          "--result", args.result, "--context-receipt", args.context_receipt,
                          "--adjudication", args.adjudication, *(["--generation", str(args.generation), "--token", args.token]
-                     if args.generation is not None and args.token is not None else []), *lineage).strip())
+                     if args.generation is not None and args.token is not None else []), *lineage, *binding).strip())
         else:
             root = Path(args.root).resolve()
             print(mc(root, "workspace", "load", "--file", args.file).strip())

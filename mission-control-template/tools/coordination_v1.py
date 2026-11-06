@@ -630,6 +630,8 @@ def issues(scope: dict, root: Path, state: dict, dag: dict) -> list[str]:
             if request["phase"] in {"STOP_CONFIRMED", "RELEASED"} and request["executor_identity"] is not None and not request["stop_observation_ref"]:
                 errors.append(f"{cell_id}: ownership release lacks an independent fence observation")
             errors.extend(_evidence_errors(api, root, request, cell_id))
+            if (record.get("result_ref") or request.get("scope_proof_ref")) and request.get("executor_identity") is None:
+                errors.append(f"{cell_id}: settled target lacks its recorded executor identity")
             if record.get("result_ref") and not request["scope_proof_ref"]:
                 errors.append(f"{cell_id}: settled target lacks authoritative Git scope evidence")
         except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -655,6 +657,19 @@ def _current(state: dict, args) -> tuple[dict, dict]:
     if (not request or request["generation"] != args.generation or request["token"] != args.token):
         raise ValueError("stale generation/token does not identify the current admitted attempt")
     return record, request
+
+
+def release_unlaunched(state: dict, cell_id: str, *, confirmed_no_launch: bool = False) -> None:
+    record = state["cells"][cell_id]
+    request = record["coordination"]
+    permitted = {"QUEUED", "ADMITTED"} | ({"STOP_CONFIRMED"} if confirmed_no_launch else set())
+    if request["phase"] not in permitted or record.get("result_ref") or request.get("scope_proof_ref"):
+        raise ValueError("no-launch recovery requires an unexecuted, nonsettled current generation")
+    record["state"] = "COMPILED"
+    for key in ("worker_identity", "verifier_identity", "workspace_id"):
+        record.pop(key, None)
+    state["frontier"]["dispatched"] = sorted(set(state["frontier"]["dispatched"]) - {cell_id})
+    request["phase"] = "RELEASED"
 
 
 def command(scope: dict, args) -> int:
@@ -745,10 +760,7 @@ def command(scope: dict, args) -> int:
         if phase in {"QUEUED", "ADMITTED"}:
             # Under the capable protocol these states never authorize a writer.
             # Revoke their launch permission atomically with the claim release.
-            record["state"] = "COMPILED"
-            for key in ("worker_identity", "verifier_identity", "workspace_id"):
-                record.pop(key, None)
-            state["frontier"]["dispatched"] = sorted(set(state["frontier"]["dispatched"]) - {args.cell})
+            release_unlaunched(state, args.cell)
         request["phase"] = "RELEASED"
     elif action == "reassess":
         if record.get("execution_reservation"):

@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-no-launch-observation/1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "cell_id",
+    "attempt",
+    "reservation_id",
+    "fence",
+    "binding_digest",
+    "launch_intent_id",
+    "observation_id",
+    "session_ref",
+    "source_evidence",
+    "outcome",
+    "start_not_occurred",
+    "launch_authority_revoked"
+  ],
+  "properties": {
+    "schema": {
+      "const": "flyby/mission-control-no-launch-observation/1"
+    },
+    "cell_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "reservation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "binding_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "launch_intent_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "observation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority",
+        "record_ref",
+        "record_sha256"
+      ],
+      "properties": {
+        "authority": {
+          "type": "string",
+          "minLength": 1
+        },
+        "record_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "record_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "session_ref": {
+      "type": "null"
+    },
+    "outcome": {
+      "const": "NO_LAUNCH"
+    },
+    "start_not_occurred": {
+      "const": true,
+      "type": "boolean"
+    },
+    "launch_authority_revoked": {
+      "const": true,
+      "type": "boolean"
+    }
+  }
+}

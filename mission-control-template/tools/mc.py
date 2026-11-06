@@ -143,6 +143,9 @@ def _stable_lock_required(root: Path) -> bool:
 
 
 def cmd_coordination(args: argparse.Namespace) -> int:
+    if (_execution_enabled(Path(args.root).resolve()) and args.coordination_command in
+            {"launching", "running", "unknown", "stop", "confirm-stop", "release", "reassess", "relinquish"}):
+        raise ValueError("use execution with reservation ID, fence and binding digest for this capable target")
     return _coordination().command(globals(), args)
 
 
@@ -2559,7 +2562,9 @@ def _template_asset_pairs(template_root: Path, root: Path, *, coordination: bool
     ):
         for source in sorted(source_dir.rglob("*")):
             if source.is_file():
-                if source.name in {"EXECUTION_STATE_SCHEMA_V21.json", "EXECUTION_BINDING_SCHEMA_V1.json"} and not reservations:
+                if source.name in {"EXECUTION_STATE_SCHEMA_V21.json", "EXECUTION_BINDING_SCHEMA_V1.json",
+                                    "PROVIDER_SESSION_OBSERVATION_SCHEMA_V1.json", "PROVIDER_TERMINAL_OBSERVATION_SCHEMA_V1.json",
+                                    "NO_LAUNCH_OBSERVATION_SCHEMA_V1.json", "PROVIDER_SESSION_MAPPING_SCHEMA_V1.json"} and not reservations:
                     continue
                 optional_lineage = {"EXECUTION_STATE_SCHEMA_V18.json", "TARGET_CORPUS_SCHEMA_V17.json",
                                     "LINEAGE_PRESERVATION_REVIEW_SCHEMA_V1.json"}
@@ -3641,6 +3646,9 @@ def cmd_retry(args: argparse.Namespace) -> int:
     if not cell or cell.get("kind") == "BARRIER":
         print("retry requires an executable cell", file=sys.stderr)
         return 1
+    if (_execution_enabled(root) and isinstance(cell.get("target"), dict)
+            and not getattr(args, "_execution_selected", False)):
+        raise ValueError("use execution retry with the exact reservation selectors for this capable target")
     allowed_lifecycles = _PHASE_LIFECYCLES[_cell_phase(dag, args.cell)]
     if state["lifecycle"] not in allowed_lifecycles:
         print(f"retry for {args.cell} blocked from lifecycle {state['lifecycle']}", file=sys.stderr)
@@ -3890,6 +3898,8 @@ def cmd_settle(args: argparse.Namespace) -> int:
     result = load_json(Path(args.result).resolve())
     receipt = load_json(Path(args.context_receipt).resolve())
     adjudication = load_json(Path(args.adjudication).resolve())
+    if record.get("execution_reservation"):
+        _execution().validate_settlement(globals(), root, record, result, receipt, args)
     errors = validate_result(root, result, args.cell, packet)
     errors.extend(validate_context_receipt(root, receipt, args.cell, packet["context_manifest_ref"], packet["base_head"]))
     errors.extend(validate_context_accounting(root, receipt, packet, str(result.get("outcome"))))
@@ -4854,6 +4864,7 @@ def build_parser() -> argparse.ArgumentParser:
     settle.add_argument("--adjudication", required=True)
     settle.add_argument("--generation", type=int)
     settle.add_argument("--token")
+    settle.add_argument("--binding-digest")
     settle.add_argument("--lineage-review")
     settle.set_defaults(func=cmd_settle)
     lineage = sub.add_parser("lineage")

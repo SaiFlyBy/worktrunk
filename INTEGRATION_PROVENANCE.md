@@ -88,10 +88,16 @@ a competing scheduler. New opt-in missions seal the composed v21 contract.
 
 The three provisional interface records under `execution-adapter-20261104/`
 are design/source evidence, not deployed provider authentication. Their useful
-accepted/historical lookup and no-launch recovery behaviors are completed using
-the actual coordination scope/fence/release contract. Running and stop remain
-observations; safe release after launch still requires the independently verified
-operator fence, including every potential descendant. No provider launcher,
+session/terminal observations, accepted/historical lookup and no-launch recovery
+behaviors are completed using the actual coordination scope/fence/release
+contract. Their three observation schemas are preserved exactly from revision 3.
+An explicit independent session mapping supports distinct ContextReceipt and
+provider namespaces. Settlement requires retained session/terminal observations,
+matching receipt session and the full reservation selector. No-launch recovery
+requires retained start-not-occurred and launch-authority-revoked evidence, archives
+an immutable replayable receipt and advances only the fence in the same attempt.
+Safe release after launch still requires the independently verified operator
+fence covering exact source evidence and every potential descendant. No provider launcher,
 automatic termination authority or external queue-completion adapter is claimed.
 The full transport binding is retained by digest through scope proof, handoff,
 dependency delivery and independent settlement, alongside lineage reviews.

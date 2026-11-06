@@ -50,6 +50,10 @@ class SettlementCompatibilityTests(unittest.TestCase):
             self.assertNotEqual(0, proc.returncode)
             self.assertIn("unsupported frozen mission runtime", proc.stderr)
 def empty_dependency_mission(root: Path) -> None:
+    corpus = root / "corpus"
+    corpus.mkdir(exist_ok=True)
+    (corpus / "TARGET_MUTATIONS.json").write_text(json.dumps({
+        "provenance_materialization": {"mode": "TARGET_HAS_NO_LINEAGE_MANIFEST"}}), encoding="utf-8")
     control = root / "control"
     control.mkdir(exist_ok=True)
     (control / "EXECUTION_DAG.json").write_text(
@@ -686,7 +690,7 @@ class RealGitPublishTests(unittest.TestCase):
                 kwargs.setdefault("env", test_env)
                 return real_run(argv, **kwargs)
             with patch.object(bridge, "scope_report", return_value=report), \
-                 patch.object(bridge, "read_json", return_value={"provenance_materialization": {"mode": "TARGET_HAS_NO_LINEAGE_MANIFEST"}}), \
+                 patch.object(bridge, "mc", return_value=""), \
                  patch.object(bridge, "ledger_entry", return_value={
                      "branch": "scope/one", "remote_url": "https://github.com/owner/repo.git",
                      "repository": "owner/repo", "base_sha": base}), \
@@ -752,7 +756,7 @@ class RealGitPublishTests(unittest.TestCase):
                 kwargs.setdefault("env", env)
                 return real_run(argv, **kwargs)
             with patch.object(bridge, "scope_report", return_value=report), \
-                 patch.object(bridge, "read_json", return_value={"provenance_materialization": {"mode": "TARGET_HAS_NO_LINEAGE_MANIFEST"}}), \
+                 patch.object(bridge, "mc", return_value=""), \
                  patch.object(bridge, "ledger_entry", return_value={"branch": "scope/one",
                      "remote_url": "https://github.com/owner/repo.git", "repository": "owner/repo", "base_sha": base}), \
                  patch.object(bridge, "validate_push_destinations", return_value=[str(bare)]), \
@@ -893,7 +897,7 @@ class RealGitPublishTests(unittest.TestCase):
                 return result
             with patch.dict(os.environ, env, clear=True), \
                  patch.object(bridge, "scope_report", return_value=report), \
-                 patch.object(bridge, "read_json", return_value={"provenance_materialization": {"mode": "TARGET_HAS_NO_LINEAGE_MANIFEST"}}), \
+                 patch.object(bridge, "mc", return_value=""), \
                  patch.object(bridge, "ledger_entry", return_value={"branch": "scope/one", "remote_url": good_url,
                      "repository": "owner/repo", "base_sha": base}), \
                  patch.object(bridge, "github_origin", side_effect=lambda url, repository: url == good_url), \

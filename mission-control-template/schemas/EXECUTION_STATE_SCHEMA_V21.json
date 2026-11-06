@@ -624,6 +624,85 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 256
+              },
+              "session_observation_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "session_observation_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "terminal_observation_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "terminal_observation_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "no_launch_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "no_launch_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "prelaunch_release_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "prelaunch_release_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "session_mapping_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "session_mapping_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "session_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "terminal_outcome": {
+                "enum": [
+                  "COMPLETED",
+                  "FAILED",
+                  "CANCELLED"
+                ]
+              },
+              "observation_history": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "ref",
+                    "sha256"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "session_observation",
+                        "terminal_observation"
+                      ]
+                    },
+                    "ref": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    }
+                  }
+                }
               }
             }
           },
@@ -796,6 +875,85 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 256
+                },
+                "session_observation_ref": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "session_observation_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "terminal_observation_ref": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "terminal_observation_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "no_launch_ref": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "no_launch_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "prelaunch_release_ref": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "prelaunch_release_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "session_mapping_ref": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "session_mapping_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "session_ref": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "terminal_outcome": {
+                  "enum": [
+                    "COMPLETED",
+                    "FAILED",
+                    "CANCELLED"
+                  ]
+                },
+                "observation_history": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "ref",
+                      "sha256"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "enum": [
+                          "session_observation",
+                          "terminal_observation"
+                        ]
+                      },
+                      "ref": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "sha256": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      }
+                    }
+                  }
                 }
               }
             }
