@@ -161,7 +161,7 @@ jobs:
         shell: bash
         run: |
           export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_NO_LAZY_FETCH=1
-          export MC_SOURCE_PROOF_REPO="$RUNNER_TEMP/worktrunk-cell-fixtures/29efd0ffcac21717fd789da2c7020a7e02501e00/$EXPECTED_CANDIDATE/source"
+          export MC_SOURCE_PROOF_REPO="$RUNNER_TEMP/../worktrunk-cell-fixtures/29efd0ffcac21717fd789da2c7020a7e02501e00/$EXPECTED_CANDIDATE/source"
           export WORKTRUNK_PRIVATE_PROOF="$RUNNER_TEMP/worktrunk-cell-private-proof/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           mkdir -p "$WORKTRUNK_PRIVATE_PROOF"
           python - <<'PYTHON'
@@ -185,11 +185,11 @@ jobs:
           python ../.github/tools/cell_proof_receipt.py --private-root "$WORKTRUNK_PRIVATE_PROOF" --public-root "$RUNNER_TEMP/worktrunk-cell-proof-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/canonical" --candidate "$EXPECTED_CANDIDATE" --provenance "$MC_SOURCE_PROOF_REPO/../provenance.json"
           exit "$proof_status"
       - name: Verify qualification route policy
-        if: ${{ always() && steps.candidate-bound.outcome == 'success' && steps.candidate-built.outcome == 'success' }}
+        if: ${{ always() && !cancelled() && steps.candidate-bound.outcome == 'success' && steps.candidate-built.outcome == 'success' }}
         working-directory: candidate
         run: python .github/tests/ci_policy_test.py
       - name: Run current-source coordination and bridge regressions
-        if: ${{ always() && steps.candidate-bound.outcome == 'success' && steps.candidate-built.outcome == 'success' && steps.canonical-proof.outcome != 'success' }}
+        if: ${{ always() && !cancelled() && steps.candidate-bound.outcome == 'success' && steps.candidate-built.outcome == 'success' && steps.canonical-proof.outcome != 'success' }}
         working-directory: candidate
         shell: bash
         run: |
@@ -231,7 +231,7 @@ jobs:
           sys.exit(any(result['state'] != 'PASS' for result in results))
           PYTHON
       - name: Verify ordinary and changed-base bridge lifecycle
-        if: ${{ always() && steps.candidate-bound.outcome == 'success' && steps.candidate-built.outcome == 'success' }}
+        if: ${{ always() && !cancelled() && steps.candidate-bound.outcome == 'success' && steps.candidate-built.outcome == 'success' }}
         working-directory: candidate
         shell: bash
         run: |

@@ -186,7 +186,7 @@ class ProofRunnerContractSuite(unittest.TestCase):
         self.assertNotIn("continue-on-error", candidate)
         self.assertIn('tools/run_template_suite.py --expected-sha "$EXPECTED_CANDIDATE" --require-clean', candidate)
         focused = candidate.split("      - name: Run current-source coordination and bridge regressions", 1)[1].split("      - name:", 1)[0]
-        self.assertIn("always() && steps.candidate-bound.outcome == 'success' && steps.candidate-built.outcome == 'success' && steps.canonical-proof.outcome != 'success'", focused)
+        self.assertIn("always() && !cancelled() && steps.candidate-bound.outcome == 'success' && steps.candidate-built.outcome == 'success' && steps.canonical-proof.outcome != 'success'", focused)
         self.assertIn("mission-control-template/tests/test_cell_coordination.py", focused)
         self.assertIn("mission-control-template/tests/test_wt_mission.py", focused)
         self.assertIn("sys.exit(any(result['state'] != 'PASS' for result in results))", focused)
