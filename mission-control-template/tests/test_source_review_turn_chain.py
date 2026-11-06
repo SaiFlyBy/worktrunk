@@ -1090,7 +1090,7 @@ def replace_v3_birth_evidence(root, index, text):
     rewrite_turn(root, index, 1, lambda envelope: envelope['source_binding'].update({'launch_receipt_sha256': generation['launch_receipt_sha256']}))
 
 
-def test_v3_birth_evidence_rejects_empty_unparseable_and_unbound_claims():
+def test_v3_birth_evidence_rejects_empty_unparsable_and_unbound_claims():
     samples = [
         '', '  \n', '{broken', '[]', 'null',
         json.dumps({'approval_policy': 'never', 'sandbox_policy': 'danger-full-access'}),
