@@ -317,7 +317,7 @@ class ReservationLifecycleTests(unittest.TestCase):
         self.action("release", "M001", failed_reservation)
         # Observations may arrive after a safe release, while this exact current
         # reservation is still unsettled. No old selector can target a successor.
-        self.protocol.running("M001")
+        self.protocol.running("M001", context_session="delayed-independent-context-session")
         self.protocol.terminal("M001", outcome="FAILED")
         cannot_accept = self.fixture.raw_settle("M001", self.fixture.result("M001"), self.fixture.receipt("M001"), ok=False)
         self.assertIn("failure or cancellation", cannot_accept.stderr)
