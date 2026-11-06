@@ -1,0 +1,7 @@
+{
+  "schema": "flyby/mission-control-capability/1",
+  "capability": "lineage-preservation/v1",
+  "state_schema": "flyby/mission-control-execution-state/18",
+  "target_corpus_schema": "flyby/mission-control-target-corpus/17",
+  "review_schema": "flyby/mission-control-lineage-preservation-review/1"
+}

@@ -23,7 +23,8 @@
         "tests/test_proof_runner_contract.py",
         "tests/test_reference_fixture_byte_custody.py",
         "tests/test_legacy_fixture_byte_custody.py",
-        "tests/test_source_review_turn_chain.py"
+        "tests/test_source_review_turn_chain.py",
+        "tests/test_lineage_preservation.py"
       ],
       "commands": [
         ["python", "tests/test_template_coherence.py"],
@@ -39,7 +40,8 @@
         ["python", "tests/test_proof_runner_contract.py"],
         ["python", "tests/test_reference_fixture_byte_custody.py"],
         ["python", "tests/test_legacy_fixture_byte_custody.py"],
-        ["python", "tests/test_source_review_turn_chain.py"]
+        ["python", "tests/test_source_review_turn_chain.py"],
+        ["python", "tests/test_lineage_preservation.py"]
       ]
     },
     "e2e": {
@@ -49,14 +51,16 @@
         "tests/test_evidence_based_source_qualification.py",
         "tools/test_template_v16.py",
         "tests/test_wt_mission.py",
-        "tests/test_cell_coordination.py"
+        "tests/test_cell_coordination.py",
+        "tests/test_lineage_lifecycle.py"
       ],
       "commands": [
         ["python", "tests/test_runtime_state_machine.py"],
         ["python", "tests/test_evidence_based_source_qualification.py"],
         ["python", "tools/test_template_v16.py"],
         ["python", "tests/test_wt_mission.py"],
-        ["python", "tests/test_cell_coordination.py"]
+        ["python", "tests/test_cell_coordination.py"],
+        ["python", "tests/test_lineage_lifecycle.py"]
       ]
     },
     "performance_load": {

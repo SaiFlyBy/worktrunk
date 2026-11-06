@@ -140,6 +140,28 @@ class PublishTests(unittest.TestCase):
         self.assertIn("--draft", pr)
         self.assertEqual(result["base_sha"], self.base)
 
+    def test_lineage_changes_during_forge_verification_block_success_receipts(self):
+        for existing in (False, True):
+            with self.subTest(existing=existing):
+                self.setUp()
+                if existing:
+                    self.remote_branch = self.head
+                    self.open_prs = [{"url": "https://github.com/owner/repo/pull/1", "headRefOid": self.head}]
+                changed = False
+
+                def verify(*args, **kwargs):
+                    nonlocal changed
+                    changed = True
+                    return {"url": "https://github.com/owner/repo/pull/1"}
+
+                def lineage(*args, **kwargs):
+                    if changed:
+                        raise bridge.BridgeError("lineage evidence changed during forge lookup")
+
+                with patch.object(bridge, "verify_publication", side_effect=verify), \
+                     patch.object(bridge, "verify_lineage_for_publication", side_effect=lineage):
+                    with self.assertRaisesRegex(bridge.BridgeError, "lineage evidence changed"):
+                        self.invoke()
     def test_foreign_push_url_is_rejected_before_any_network(self):
         for urls in (["https://attacker.invalid/owner/repo.git"],
                      ["https://github.com/owner/repo.git", "https://attacker.invalid/owner/repo.git"],
@@ -388,6 +410,20 @@ class PublishTests(unittest.TestCase):
             self.invoke()
         self.assertFalse(any("view" in call for call in self.calls))
 
+class LineagePublicationCompatibilityTests(unittest.TestCase):
+    def test_legacy_corpus_does_not_request_lineage_verification(self):
+        with tempfile.TemporaryDirectory(prefix="wt-lineage-legacy-") as tmp:
+            root = Path(tmp)
+            (root / "corpus").mkdir()
+            (root / "corpus" / "TARGET_MUTATIONS.json").write_text(
+                json.dumps({"provenance_materialization": {"mode": "TARGET_HAS_NO_LINEAGE_MANIFEST"}}),
+                encoding="utf-8")
+            with patch.object(bridge, "mc") as mc:
+                bridge.verify_lineage_for_publication(root, "M000", "owner/repo",
+                                                      "a" * 40, "b" * 40, "refs/heads/main")
+                mc.assert_not_called()
+
+
 class OriginTests(unittest.TestCase):
     def test_child_environment_drops_git_discovery_but_preserves_other_settings(self):
         source = {"GIT_DIR": "elsewhere", "GIT_WORK_TREE": "elsewhere",
@@ -567,6 +603,7 @@ class RealGitPublishTests(unittest.TestCase):
                 kwargs.setdefault("env", test_env)
                 return real_run(argv, **kwargs)
             with patch.object(bridge, "scope_report", return_value=report), \
+                 patch.object(bridge, "read_json", return_value={"provenance_materialization": {"mode": "TARGET_HAS_NO_LINEAGE_MANIFEST"}}), \
                  patch.object(bridge, "ledger_entry", return_value={
                      "branch": "scope/one", "remote_url": "https://github.com/owner/repo.git",
                      "repository": "owner/repo", "base_sha": base}), \
@@ -631,6 +668,7 @@ class RealGitPublishTests(unittest.TestCase):
                 kwargs.setdefault("env", env)
                 return real_run(argv, **kwargs)
             with patch.object(bridge, "scope_report", return_value=report), \
+                 patch.object(bridge, "read_json", return_value={"provenance_materialization": {"mode": "TARGET_HAS_NO_LINEAGE_MANIFEST"}}), \
                  patch.object(bridge, "ledger_entry", return_value={"branch": "scope/one",
                      "remote_url": "https://github.com/owner/repo.git", "repository": "owner/repo", "base_sha": base}), \
                  patch.object(bridge, "validate_push_destinations", return_value=[str(bare)]), \
@@ -765,6 +803,7 @@ class RealGitPublishTests(unittest.TestCase):
                 return result
             with patch.dict(os.environ, env, clear=True), \
                  patch.object(bridge, "scope_report", return_value=report), \
+                 patch.object(bridge, "read_json", return_value={"provenance_materialization": {"mode": "TARGET_HAS_NO_LINEAGE_MANIFEST"}}), \
                  patch.object(bridge, "ledger_entry", return_value={"branch": "scope/one", "remote_url": good_url,
                      "repository": "owner/repo", "base_sha": base}), \
                  patch.object(bridge, "github_origin", side_effect=lambda url, repository: url == good_url), \

@@ -186,7 +186,9 @@ A source-driven target requirement must:
 
 Bidirectional accounting remains mandatory: source -> mechanism -> requirement and requirement -> mechanism -> source must agree. Every `SYNTHESIS_REQUIRED` source carried by a bound mechanism must also appear explicitly in that requirement's `sources`; a requirement may not hide research lineage by listing only owner intent while retaining a research-derived mechanism. `source_driven` is therefore derived from the union of requirement sources and bound mechanism sources. A `REJECTED` mechanism has zero target requirements and may not be named by a target requirement; rejected evidence remains preserved only as evidence.
 
-The target corpus also declares `provenance_materialization`. If the target already has a lineage/provenance manifest, Mission Control must create a requirement that updates it during execution. That update records exact source revisions, rights basis, review evidence, adopted/rejected mechanisms, implementation locations, and obligations. Provenance remains lineage evidence unless a separate architecture decision grants runtime authority.
+The target corpus also declares `provenance_materialization`. Normally, when the target has a lineage/provenance manifest, a requirement updates it with exact source revisions, rights basis, review evidence, adopted/rejected mechanisms, implementation locations, and obligations.
+
+A new mission that explicitly enables the sealed `lineage-preservation-v1` capability may use `SAME_REPOSITORY_NO_NEW_HARVEST` only for its independently established target profile. An independent candidate-bound review must account for all materially used sources and establish that no new external contribution or obligation is introduced. The exact existing lineage, harvest, target-policy, and validator files remain byte- and mode-identical between the reviewed base and candidate. The profile fixes the authority paths and pinned policy/validator objects; an unsupported repository or changed policy fails closed. If external material or obligations are introduced, use the normal materialization mode and its schema; this exception does not waive source accounting, rights, or target policy. Existing frozen missions retain their original contracts. Provenance remains lineage evidence unless a separate architecture decision grants runtime authority.
 
 ## Phase 8: mutation-cell design
 
@@ -247,7 +249,7 @@ Closure preserves:
 11. More mechanisms do not imply more components; cross-source composition is encouraged when one coherent target abstraction can carry them.
 12. Rejection and already-satisfied findings are evidence-bearing outcomes.
 13. Direct reuse records exact source IDs, locations, obligations, and attribution/notice requirements.
-14. Every materially used source is materialized into the target's existing lineage manifest when one exists.
+14. Materially used sources are recorded in the target's existing lineage manifest when required; the sealed same-repository/no-new-harvest preservation mode retains unchanged existing lineage only under its explicit independent review and target profile.
 15. Provenance records lineage; they do not silently create runtime authority.
 16. Qualification proves the integrated target behavior and obligations, not visual similarity to a source.
 17. A bound mechanism cannot hide an authorizing synthesis source from the target requirement that consumes it.
