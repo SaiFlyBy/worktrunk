@@ -425,3 +425,58 @@ base. Preserve a failed candidate on its own ref before preparing that base, or
 compile an explicit successor. Recovery never resets or cleans a worker's
 checkout. Historical scope and fence evidence stays hash-checked across retries;
 changing underlying operator evidence blocks further authority transitions.
+
+## Exact execution reservations
+
+Initialize a new mission with `--execution-reservations` to bind the transport's
+task, seat, worker, claim/generation, project, provider, account and node identities
+to the exact mission instance, attempt and registered workspace. This opt-in
+includes cell coordination and seals execution-state v21. It also composes with
+`--lineage-preservation`; the execution capability declares the effective v21
+schema. Existing frozen missions and their schemas are unchanged.
+
+Create a binding using `schemas/EXECUTION_BINDING_SCHEMA_V1.json`, including the
+mission instance from execution state and the exact registered path, repository,
+base and distinct worker/verifier identities. The optional `workspace_origin`
+must match the registered effective origin. Duplicate keys, booleans as generation
+numbers, unknown fields, and ambiguous identities are rejected. These strings
+and hashes do not authenticate a provider, authorize a project, or replace the
+trusted transport's own ownership and source-evidence checks.
+
+```sh
+python path/to/mission/runtime/tools/mc.py execution reserve \
+  --root path/to/mission --binding binding.json --launch-intent-id stable-intent
+```
+
+Admission, claims, launch intent and binding share one durable state transaction.
+The response reports the actual coordination phase (`QUEUED` or `ADMITTED`),
+`reservation_id`, `fence` and `binding_digest`. An exact repeat returns the same
+reservation; a different active binding or reused intent fails. Target `dispatch`
+cannot bypass the binding requirement. Eligible requests keep the existing FIFO
+queue, path scopes and dependency rules.
+
+`execution inspect`, `launching`, `running`, `unknown`, `stop`, `confirm-stop`
+and `release` select `--cell`, `--reservation-id`, `--fence` and `--binding-digest`.
+`launching` also requires the actual durable `--executor-identity`; only the
+first transition returns `launch_authorized: true`. The transport records its own
+intent before its provider side effect. Lost replies and unknown outcomes never
+authorize a second launch. Running/stop observations and independent operator
+fence evidence keep the coordination contract above; this runtime starts no
+provider and supplies no automatic termination proof.
+
+Settlement keeps the ordinary result/receipt/independent-adjudication contract,
+using the reservation's fence as `--generation` and ID as `--token`. Inspection
+returns the exact stored binding, cell outcome, evidence-file hashes and their
+canonical digest, applicable lineage review and stop evidence. ACCEPTED and
+`ownership_released` are separate observations. A trusted external adapter must
+match every binding field and its own dependency contract before completing any
+external work; this CLI does not complete another service's queue.
+
+An unlaunched request can be explicitly released, revoking its launch permission.
+Reserve again with a new intent to obtain a new fence in the same attempt. A
+launched failed attempt requires independent stop confirmation, release and the
+ordinary retry command. Historical inspection remains available by its exact old
+selectors, including no-launch recovery; old selectors cannot mutate a successor.
+Historical no-launch reservations never inherit a later execution's result.
+Handoffs and dependency observations retain the reservation selector and binding
+digest, which is also bound into the accepted scope proof.

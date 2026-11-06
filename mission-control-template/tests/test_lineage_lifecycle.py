@@ -24,7 +24,10 @@ class MissionLifecycleSuite(unittest.TestCase):
     def test_coordinated_preservation_retains_reviews_and_requires_release(self) -> None:
         self.preservation_lifecycle(coordination=True)
 
-    def preservation_lifecycle(self, *, coordination: bool) -> None:
+    def test_reserved_preservation_retains_transport_binding_through_handoff_and_closure(self) -> None:
+        self.preservation_lifecycle(coordination=True, reservations=True)
+
+    def preservation_lifecycle(self, *, coordination: bool, reservations: bool = False) -> None:
         fixture = lifecycle.RuntimeStateMachineSuite()
         original_source = fixture.source
         original_mc = fixture.mc
@@ -100,11 +103,39 @@ class MissionLifecycleSuite(unittest.TestCase):
                 args = (*args, "--lineage-preservation")
                 if coordination:
                     args = (*args, "--cell-coordination")
+                if reservations:
+                    args = (*args, "--execution-reservations")
                 return fixture._run(template / "tools" / "mc.py", *args, **kwargs)
             return original_source(*args, **kwargs)
 
         def mc_wrapper(*args, **kwargs):
             args = list(args)
+            if reservations and args and args[0] == "dispatch":
+                cell = str(args[args.index("--cell") + 1])
+                packet = fixture.packet(cell)
+                if packet.get("target"):
+                    target = packet["target"]
+                    binding = {
+                        "mission_id": fixture.state()["mission_id"],
+                        "mission_instance_id": fixture.state()["mission_instance_id"],
+                        "cell_id": cell, "attempt": fixture.state()["cells"][cell]["attempt"],
+                        "workspace_id": "ws-" + cell, "workspace_path": str(fixture.target_worktree(cell).resolve()),
+                        "workspace_origin": "https://github.com/example/target.git",
+                        "repository": target["repository"], "base_sha": target["base_sha"],
+                        "worker_identity": "runtime-state-worker", "verifier_identity": "runtime-state-verifier",
+                        "task_id": "task:" + cell, "seat_id": "seat-1", "worker_id": "worker-1",
+                        "claim_id": "claim:" + cell, "claim_generation": 1, "worker_generation": 1,
+                        "project_id": "project-1", "provider": "codex", "account_id": None, "node_id": "node-1"}
+                    binding_path = fixture.root / (cell + "-execution-binding.json")
+                    write_json(binding_path, binding)
+                    response = original_mc("execution", "reserve", "--root", fixture.root, "--binding", binding_path,
+                                           "--launch-intent-id", "lineage-intent:" + cell, **kwargs)
+                    request = fixture.state()["cells"][cell]["coordination"]
+                    if request["phase"] == "ADMITTED":
+                        original_mc("coordination", "launching", "--root", fixture.root, "--cell", cell,
+                                    "--generation", request["generation"], "--token", request["token"],
+                                    "--executor-identity", "lineage-fixture:" + cell)
+                    return response
             if coordination and args and args[0] == "settle" and "--cell" in args:
                 cell = args[args.index("--cell") + 1]
                 request = fixture.state()["cells"][cell].get("coordination")
@@ -259,6 +290,13 @@ class MissionLifecycleSuite(unittest.TestCase):
             capture_output=True, text=True)
         self.assertEqual(0, bridge_settle.returncode, bridge_settle.stderr)
         self.assertEqual("ACCEPTED", fixture.state()["cells"]["M000"]["state"])
+        if reservations:
+            selected = fixture.state()["cells"]["M000"]["execution_reservation"]
+            lookup = json.loads(fixture.mc("execution", "inspect", "--root", fixture.root, "--cell", "M000",
+                                "--reservation-id", selected["token"], "--fence", selected["generation"],
+                                "--binding-digest", selected["binding_digest"]).stdout)
+            self.assertEqual(fixture.state()["cells"]["M000"]["lineage_review_sha256"],
+                             lookup["evidence_hashes"]["lineage_review_sha256"])
         replay = subprocess.run(
             [sys.executable, str(bridge_path), *map(str, settle), "--lineage-review", str(review_path),
              *fence, "--reconcile"], capture_output=True, text=True)
@@ -351,6 +389,9 @@ class MissionLifecycleSuite(unittest.TestCase):
             parent = fixture.state()["cells"]["M000"]
             self.assertEqual({"ref": parent["lineage_review_ref"], "sha256": parent["lineage_review_sha256"]},
                              handoff["accepted_evidence"]["lineage_review"])
+            if reservations:
+                self.assertEqual(parent["execution_reservation"]["binding_digest"],
+                                 handoff["execution_reservation"]["binding_digest"])
             worktree = fixture.target_worktree("M002")
             fixture.mc("workspace", "register", "--root", fixture.root, "--cell", "M002",
                        "--workspace-id", "ws-M002", "--branch", "mcv6/m002", "--path", worktree)
@@ -384,6 +425,9 @@ class MissionLifecycleSuite(unittest.TestCase):
             self.assertEqual("SAME_SCOPE_HANDOFF", delivered[0]["state"])
             self.assertIn("lineage_review", delivered[0]["evidence"])
             self.assertEqual(parent["coordination"]["generation"], delivered[0]["coordination"]["generation"])
+            if reservations:
+                self.assertEqual(parent["execution_reservation"]["binding_digest"],
+                                 delivered[0]["execution_reservation"]["binding_digest"])
             parent_review = fixture.root / parent["lineage_review_ref"]
             parent_bytes = parent_review.read_bytes()
             try:

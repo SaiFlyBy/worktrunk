@@ -363,6 +363,7 @@ def scope_report(root: Path, cell_id: str) -> dict:
         "workcell_sha256": hashlib.sha256(safe_ref(root, record["workcell_ref"]).read_bytes()).hexdigest(),
         "attempt": record.get("attempt"),
         "coordination": record.get("coordination"),
+        "execution_reservation": reservation_selector(record),
         "worker_identity": record.get("worker_identity"),
         "verifier_identity": record.get("verifier_identity"),
         "note": "Read-only projection of Mission Control records; not an additional decision or proof of unrecorded checks.",
@@ -519,6 +520,10 @@ def _accepted_dependency(root: Path, cell: dict, record: dict) -> tuple[str, dic
 def _dependency_custody(root: Path, cell_id: str, record: dict) -> dict:
     request = record.get("coordination")
     if request is None:
+        lock = root / "TEMPLATE_LOCK.json"
+        if ((root / "contracts/capabilities/cell-coordination-v1.json").exists()
+                or lock.is_file() and "contracts/capabilities/cell-coordination-v1.json" in read_json(lock).get("assets", {})):
+            raise BridgeError(f"Dependency {cell_id} is missing required coordinated writer custody")
         return {}
     if (not isinstance(request, dict) or request.get("phase") != "RELEASED"
             or type(request.get("generation")) is not int or request["generation"] < 1
@@ -536,6 +541,14 @@ def _dependency_custody(root: Path, cell_id: str, record: dict) -> dict:
         evidence[kind] = {"ref": ref, "sha256": digest}
     return {"generation": request["generation"], "token": request["token"],
             "binding_digest": request.get("binding_digest"), "phase": request["phase"], "evidence": evidence}
+
+
+def reservation_selector(record: dict) -> dict | None:
+    reservation = record.get("execution_reservation")
+    if not isinstance(reservation, dict):
+        return None
+    return {"reservation_id": reservation.get("token"), "fence": reservation.get("generation"),
+            "binding_digest": reservation.get("binding_digest"), "launch_intent_id": reservation.get("launch_intent_id")}
 
 
 def _handoff_lineage(root: Path, cells: dict[str, dict], records: dict, current: str,
@@ -565,6 +578,8 @@ def _handoff_lineage(root: Path, cells: dict[str, dict], records: dict, current:
             break
         head, evidence = _accepted_dependency(root, parent, record)
         custody = _dependency_custody(root, predecessor, record)
+        if reservation_selector(record) is not None and payload.get("execution_reservation") != reservation_selector(record):
+            break
         target = parent.get("target")
         preserved = set(parent) | set(child)
         preserved -= {"cell_id", "dependencies", "objective", "acceptance"}
@@ -630,6 +645,7 @@ def _merged_dependency_pr(repo: Path, gh: str, repository: str, branch: str,
             or not _dependency_ancestor(repo, merge_sha, observed_base)):
         raise BridgeError(f"Dependency {cell_id} PR does not establish delivery into the observed base")
     return {"cell": cell_id, "state": "MERGED_PR", "head_sha": head,
+            "evidence_kind": "OPERATOR_SELECTED_PR_AND_CURRENT_FORGE_OBSERVATION",
             "pr": expected_url, "merge_sha": merge_sha, "merged_at": value["mergedAt"]}
 
 
@@ -696,6 +712,8 @@ def check_dependency_delivery(root: Path, cell_id: str, repo: Path, repository: 
         custody = _dependency_custody(root, dependency, record)
         if custody:
             identity["coordination"] = custody
+        if reservation_selector(record) is not None:
+            identity["execution_reservation"] = reservation_selector(record)
         if dependency in lineage:
             observations.append({"cell": dependency, "state": "SAME_SCOPE_HANDOFF",
                                  "head_sha": head, **identity})
@@ -788,6 +806,8 @@ def handoff(args: argparse.Namespace) -> None:
                "compiled_base": baseline, "observed_base": observed,
                "merge_base": merge_base, "base_changed_paths": changes,
                "accepted_evidence": evidence}
+    if reservation_selector(record) is not None:
+        payload["execution_reservation"] = reservation_selector(record)
     if "contracts/capabilities/cell-coordination-v1.json" in read_json(root / "TEMPLATE_LOCK.json").get("assets", {}):
         coordination = record.get("coordination", {})
         scope_base = coordination.get("binding", {}).get("scope_base", baseline)
@@ -1007,12 +1027,14 @@ def publish(args: argparse.Namespace) -> None:
             print(f"wt-mission: Dependency {dependency['cell']} targets another repository and was not checked",
                   file=sys.stderr)
 
-    def recheck_dependencies() -> None:
+    def recheck_dependencies(*, published: bool = False) -> None:
         mc(root, "doctor")
         current = check_dependency_delivery(root, args.cell, repo, repository, candidate,
                                             observed_base, args.base, args.gh, dependency_prs)
         if current != dependencies or remote_head(repo, base_ref) != observed_base:
             raise BridgeError("Dependencies or remote base changed; publication requires reconciliation")
+        if published and remote_head(repo, branch_ref) != candidate:
+            raise BridgeError("Published branch changed during dependency verification; reconcile before retrying")
 
     existing = remote_head(repo, branch_ref)
     if existing is not None and existing != candidate:
@@ -1036,7 +1058,7 @@ def publish(args: argparse.Namespace) -> None:
                                       require_draft=False)
         verify_coordination_for_publication(root, args.cell, candidate, observed_base)
         verify_lineage_for_publication(root, args.cell, repository, candidate, observed_base, base_ref)
-        recheck_dependencies()
+        recheck_dependencies(published=True)
         print(json.dumps({"state": "EXISTING_PR", "pr": pr, "head_sha": candidate,
                           "base_sha": observed_base, "verified_pr": verified,
                           "dependencies": dependencies}, indent=2))
@@ -1059,7 +1081,7 @@ def publish(args: argparse.Namespace) -> None:
         raise BridgeError("Remote base changed after push; branch preserved, no PR created")
     verify_coordination_for_publication(root, args.cell, candidate, observed_base)
     verify_lineage_for_publication(root, args.cell, repository, candidate, observed_base, base_ref)
-    recheck_dependencies()
+    recheck_dependencies(published=True)
     create = run([args.gh, "pr", "create", "--repo", repository, "--base", args.base,
                   "--head", workspace["branch"], "--title", args.title,
                   "--body", args.body, "--draft"], cwd=repo)
@@ -1071,7 +1093,7 @@ def publish(args: argparse.Namespace) -> None:
                                   require_draft=True)
     verify_coordination_for_publication(root, args.cell, candidate, observed_base)
     verify_lineage_for_publication(root, args.cell, repository, candidate, observed_base, base_ref)
-    recheck_dependencies()
+    recheck_dependencies(published=True)
     print(json.dumps({"state": "DRAFT_PR_CREATED", "url": verified["url"],
                       "head_sha": candidate, "base_sha": observed_base, "compiled_base_sha": base_sha,
                       "dependencies": dependencies}, indent=2))

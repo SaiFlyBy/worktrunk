@@ -63,6 +63,9 @@
     },
     "enforceable_cell_coordination": {
       "e2e": ["tests/test_cell_coordination.py", "tests/test_runtime_state_machine.py", "tests/test_wt_mission.py"]
+    },
+    "bound_execution_reservations": {
+      "e2e": ["tests/test_execution_reservation.py", "tests/test_lineage_lifecycle.py"]
     }
   }
 }
