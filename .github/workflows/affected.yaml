@@ -28,20 +28,20 @@ env:
 
 jobs:
   # cargo-affected: runs only the tests whose recorded coverage overlaps the
-  # diff. Advisory at this stage — `test (linux/macos/windows)` still runs the
+  # diff. Advisory at this stage — `test (linux/windows)` still runs the
   # full suite. The signal is the runtime delta on the exact-match path and
   # whether selection misses any failures the full suite catches.
   #
-  # Both jobs run as the same linux/macos/windows matrix as `test`. The
+  # Both jobs run as the same linux/windows matrix as `test`. The
   # fingerprint embeds `rustc -vV` (host triple), so a DB collected on one OS
   # cache-misses on the others — each OS's `affected-tests` leg pairs with a
   # `collect-affected` DB from the same OS via the `runner.os` cache key.
   #
   # TODO(affected-only PRs): the fast pre-merge gates are already split into the
-  # `fast-checks` job, so `test (linux/macos/windows)` is now purely the full
+  # `fast-checks` job, so `test (linux/windows)` is now purely the full
   # nextest suite — the long-pole, and a drop-in shape for the affected legs.
   # Once `affected tests (*)` has a track record of catching every failure the
-  # full suite catches on all three OSes, flip: make the affected legs required
+  # full suite catches on both operating systems, flip: make the affected legs required
   # and delete `ci`'s PR `test` job — its full-matrix coverage already runs as
   # `full-tests` in the `nightly` workflow. `fast-checks` stays required and
   # unchanged. Confidence bar: a sustained stretch of PRs where the advisory
@@ -103,8 +103,6 @@ jobs:
         include:
           - os: ubuntu-24.04
             name: linux
-          - os: macos-26
-            name: macos
           - os: windows-2025
             name: windows
     runs-on: ${{ matrix.os }}
@@ -180,13 +178,11 @@ jobs:
         include:
           - os: ubuntu-24.04
             name: linux
-          - os: macos-26
-            name: macos
           - os: windows-2025
             name: windows
     runs-on: ${{ matrix.os }}
     # Advisory while we calibrate selection accuracy against the full suite.
-    # The full matrix (`test (linux/macos/windows)`) is still required for
+    # The full matrix (`test (linux/windows)`) is still required for
     # merge.
     continue-on-error: true
     steps:

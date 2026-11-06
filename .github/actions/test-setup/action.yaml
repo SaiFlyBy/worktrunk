@@ -58,13 +58,6 @@ runs:
       shell: bash
       run: sudo apt-get update && sudo apt-get install -y zsh fish
 
-    - name: Install shells (fish) - macOS
-      if: runner.os == 'macOS'
-      shell: bash
-      run: |
-        brew install fish
-        # bash and zsh are pre-installed on macOS
-
     - name: Install nushell
       if: runner.os != 'Windows'
       uses: hustcer/setup-nu@v3
