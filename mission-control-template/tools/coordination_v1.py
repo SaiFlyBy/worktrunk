@@ -585,8 +585,10 @@ def issues(scope: dict, root: Path, state: dict, dag: dict) -> list[str]:
     for cell_id, record in state.get("cells", {}).items():
         request = record.get("coordination")
         cell = api._find_cell(dag, cell_id)
-        if enabled(root) and cell and isinstance(cell.get("target"), dict) and record.get("state") == "DISPATCHED" and not request:
-            errors.append(f"{cell_id}: target dispatch lacks an admission")
+        if (enabled(root) and cell and isinstance(cell.get("target"), dict)
+                and record.get("state") in {"DISPATCHED", "CANDIDATE", "ACCEPTED", "REJECTED", "FAILED", "BLOCKED"}
+                and not request):
+            errors.append(f"{cell_id}: target dispatch or settlement lacks an admission")
         if not request:
             continue
         try:

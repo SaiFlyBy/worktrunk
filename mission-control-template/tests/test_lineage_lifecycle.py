@@ -384,6 +384,19 @@ class MissionLifecycleSuite(unittest.TestCase):
             self.assertEqual("SAME_SCOPE_HANDOFF", delivered[0]["state"])
             self.assertIn("lineage_review", delivered[0]["evidence"])
             self.assertEqual(parent["coordination"]["generation"], delivered[0]["coordination"]["generation"])
+            state_path = fixture.root / "control/EXECUTION_STATE.json"
+            state_bytes = state_path.read_bytes()
+            missing_custody = json.loads(state_bytes)
+            del missing_custody["cells"]["M000"]["coordination"]
+            try:
+                write_json(state_path, missing_custody)
+                invalid = fixture.mc("doctor", "--root", fixture.root, ok=False)
+                self.assertIn("MC0410", invalid.stdout + invalid.stderr)
+                with self.assertRaisesRegex(bridge.BridgeError, "missing required coordinated writer custody"):
+                    bridge.check_dependency_delivery(fixture.root, "M002", worktree, "example/target",
+                                                     candidate, observed, "main", "unused-gh", {})
+            finally:
+                state_path.write_bytes(state_bytes)
             parent_review = fixture.root / parent["lineage_review_ref"]
             parent_bytes = parent_review.read_bytes()
             try:

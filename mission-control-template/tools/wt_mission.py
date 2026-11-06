@@ -519,6 +519,10 @@ def _accepted_dependency(root: Path, cell: dict, record: dict) -> tuple[str, dic
 def _dependency_custody(root: Path, cell_id: str, record: dict) -> dict:
     request = record.get("coordination")
     if request is None:
+        lock = root / "TEMPLATE_LOCK.json"
+        if ((root / "contracts/capabilities/cell-coordination-v1.json").exists()
+                or lock.is_file() and "contracts/capabilities/cell-coordination-v1.json" in read_json(lock).get("assets", {})):
+            raise BridgeError(f"Dependency {cell_id} is missing required coordinated writer custody")
         return {}
     if (not isinstance(request, dict) or request.get("phase") != "RELEASED"
             or type(request.get("generation")) is not int or request["generation"] < 1
@@ -630,6 +634,7 @@ def _merged_dependency_pr(repo: Path, gh: str, repository: str, branch: str,
             or not _dependency_ancestor(repo, merge_sha, observed_base)):
         raise BridgeError(f"Dependency {cell_id} PR does not establish delivery into the observed base")
     return {"cell": cell_id, "state": "MERGED_PR", "head_sha": head,
+            "evidence_kind": "OPERATOR_SELECTED_PR_AND_CURRENT_FORGE_OBSERVATION",
             "pr": expected_url, "merge_sha": merge_sha, "merged_at": value["mergedAt"]}
 
 
@@ -1007,12 +1012,14 @@ def publish(args: argparse.Namespace) -> None:
             print(f"wt-mission: Dependency {dependency['cell']} targets another repository and was not checked",
                   file=sys.stderr)
 
-    def recheck_dependencies() -> None:
+    def recheck_dependencies(*, published: bool = False) -> None:
         mc(root, "doctor")
         current = check_dependency_delivery(root, args.cell, repo, repository, candidate,
                                             observed_base, args.base, args.gh, dependency_prs)
         if current != dependencies or remote_head(repo, base_ref) != observed_base:
             raise BridgeError("Dependencies or remote base changed; publication requires reconciliation")
+        if published and remote_head(repo, branch_ref) != candidate:
+            raise BridgeError("Published branch changed during dependency verification; reconcile before retrying")
 
     existing = remote_head(repo, branch_ref)
     if existing is not None and existing != candidate:
@@ -1036,7 +1043,7 @@ def publish(args: argparse.Namespace) -> None:
                                       require_draft=False)
         verify_coordination_for_publication(root, args.cell, candidate, observed_base)
         verify_lineage_for_publication(root, args.cell, repository, candidate, observed_base, base_ref)
-        recheck_dependencies()
+        recheck_dependencies(published=True)
         print(json.dumps({"state": "EXISTING_PR", "pr": pr, "head_sha": candidate,
                           "base_sha": observed_base, "verified_pr": verified,
                           "dependencies": dependencies}, indent=2))
@@ -1059,7 +1066,7 @@ def publish(args: argparse.Namespace) -> None:
         raise BridgeError("Remote base changed after push; branch preserved, no PR created")
     verify_coordination_for_publication(root, args.cell, candidate, observed_base)
     verify_lineage_for_publication(root, args.cell, repository, candidate, observed_base, base_ref)
-    recheck_dependencies()
+    recheck_dependencies(published=True)
     create = run([args.gh, "pr", "create", "--repo", repository, "--base", args.base,
                   "--head", workspace["branch"], "--title", args.title,
                   "--body", args.body, "--draft"], cwd=repo)
@@ -1071,7 +1078,7 @@ def publish(args: argparse.Namespace) -> None:
                                   require_draft=True)
     verify_coordination_for_publication(root, args.cell, candidate, observed_base)
     verify_lineage_for_publication(root, args.cell, repository, candidate, observed_base, base_ref)
-    recheck_dependencies()
+    recheck_dependencies(published=True)
     print(json.dumps({"state": "DRAFT_PR_CREATED", "url": verified["url"],
                       "head_sha": candidate, "base_sha": observed_base, "compiled_base_sha": base_sha,
                       "dependencies": dependencies}, indent=2))
