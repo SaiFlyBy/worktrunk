@@ -3,7 +3,7 @@ name: ci
 # Runner versions are pinned to avoid surprise breaking changes from -latest migrations.
 # Review pinned runner versions during regular maintenance.
 # - windows-2025: Pinned to current -latest equivalent
-# - ubuntu-24.04, macos-26: Pinned to current -latest equivalents
+# - ubuntu-24.04: Pinned to current -latest equivalents
 
 on:
   push:
@@ -45,6 +45,9 @@ jobs:
     - name: Check CI privacy and admission conventions
       run: python3 .github/tests/ci_policy_test.py
 
+    - name: Check CI platform policy
+      run: python3 .github/tests/test_ci_platforms.py
+
   feature-check:
     if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id) }}
     # Guards the library/CLI cleave: the `cli` feature gates clap, skim,
@@ -82,8 +85,6 @@ jobs:
         include:
           - os: ubuntu-24.04
             name: linux
-          - os: macos-26
-            name: macos
           - os: windows-2025
             name: windows
     name: test (${{ matrix.name }})

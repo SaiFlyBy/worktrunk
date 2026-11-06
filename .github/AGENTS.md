@@ -12,6 +12,11 @@ Code coverage is Rust-only; do not infer Python integration coverage from it. Th
 
 ## Build environment
 
+Fork CI runs Linux and Windows, including release artifact jobs. Do not restore
+macOS runners or their setup steps. Keep Apple's product targets and platform
+code for local/manual builds; the release workflow explicitly selects its three
+Linux/Windows targets and validates the generated job matrix before scheduling.
+
 Swatinem/rust-cache hashes the CARGO* and RUST* variables visible at the cache step. Workflows sharing a cache must set the same variables before that step. A mismatch restores nothing without failing the job. Keep the existing tests and checks unless an evidence-based change justifies adjusting them.
 
 
