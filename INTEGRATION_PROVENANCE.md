@@ -76,3 +76,31 @@ the accepted coordination contract's released generation/scope/fence custody.
 An empty initial dependency list is rechecked as well. Other-repository delivery
 remains explicitly unassessed under the original GitHub-specific contract;
 this observation does not grant cross-service completion or replace target CI.
+
+## Reservation reconciliation (2026-11-06)
+
+The dirty `flyby/execution-reservation-v1-20261104` proposal's exact transport
+binding, canonical UTF-8 digest, duplicate-key rejection, atomic admission and
+intent, immutable generation selection, launch replay protection and lookup are
+retained on the accepted coordination authority. The original v17 schema and
+uncommitted source remain in indexed local recovery; they are not installed as
+a competing scheduler. New opt-in missions seal the composed v21 contract.
+
+The three provisional interface records under `execution-adapter-20261104/`
+are design/source evidence, not deployed provider authentication. Their useful
+session/terminal observations, accepted/historical lookup and no-launch recovery
+behaviors are completed using the actual coordination scope/fence/release
+contract. Their three observation schemas are preserved exactly from revision 3.
+An explicit independent session mapping supports distinct ContextReceipt and
+provider namespaces. Settlement requires retained session/terminal observations,
+matching receipt session and the full reservation selector. No-launch recovery
+requires retained start-not-occurred and launch-authority-revoked evidence, archives
+an immutable replayable receipt and advances only the fence in the same attempt.
+Safe release after launch still requires the independently verified operator
+fence for the exact generation and every potential descendant. Adapter source
+evidence and independent fence evidence are retained and validated separately,
+so delayed observations do not require rewriting the immutable generation fence.
+No provider launcher,
+automatic termination authority or external queue-completion adapter is claimed.
+The full transport binding is retained by digest through scope proof, handoff,
+dependency delivery and independent settlement, alongside lineage reviews.

@@ -231,6 +231,11 @@ def binding(api, root: Path, dag: dict, state: dict, cell_id: str, workspace_id:
                 ["lineage_review"] if source.get("lineage_review_ref") else [])):
             if payload.get("accepted_evidence", {}).get(kind) != {"ref": source.get(kind + "_ref"), "sha256": source.get(kind + "_sha256")}:
                 raise ValueError("handoff source evidence no longer matches accepted custody")
+        reservation = source.get("execution_reservation")
+        if reservation and payload.get("execution_reservation") != {
+                "reservation_id": reservation["token"], "fence": reservation["generation"],
+                "binding_digest": reservation["binding_digest"], "launch_intent_id": reservation["launch_intent_id"]}:
+            raise ValueError("handoff source execution reservation no longer matches accepted custody")
         source_result = api.load_json(api.resolve_ref(root, source["result_ref"]))
         if source_result["target_outcomes"][0]["head_sha"] != payload.get("source_head"):
             raise ValueError("handoff source candidate changed")
@@ -238,7 +243,7 @@ def binding(api, root: Path, dag: dict, state: dict, cell_id: str, workspace_id:
         if not re.fullmatch(r"[0-9a-f]{40}", scope_base):
             raise ValueError("handoff scope base is not an immutable commit")
         git(Path(live["workspace_path"]), "merge-base", "--is-ancestor", live["base_sha"], scope_base)
-    return {"instance_id": state["coordination"]["instance_id"], "authority_root": str(root),
+    bound = {"instance_id": state["coordination"]["instance_id"], "authority_root": str(root),
             "cell": cell_id, "attempt": record["attempt"], "workspace_id": workspace_id,
             "worker_identity": worker, "verifier_identity": verifier,
             "workcell_ref": record["workcell_ref"], "workcell_sha256": api.sha256(root / record["workcell_ref"]),
@@ -247,6 +252,9 @@ def binding(api, root: Path, dag: dict, state: dict, cell_id: str, workspace_id:
             "scopes": scopes(Path(live["workspace_path"]), target["owned_paths"], live["case_insensitive"]),
             "dependencies": cell.get("dependencies", []), "claims": sorted(cell.get("resource_claims", [])),
             "conflict_class": cell["conflict_class"]}
+    if record.get("execution_reservation"):
+        bound["execution_binding_digest"] = record["execution_reservation"]["binding_digest"]
+    return bound
 
 
 def conflict(left: dict, right: dict) -> list[str]:
@@ -474,6 +482,8 @@ def retry(scope: dict, root: Path, state: dict, cell_id: str) -> None:
         if request["phase"] != "RELEASED":
             raise ValueError("retry requires confirmed safe ownership release; result outcome is not writer liveness")
         state["coordination"]["history"].append(request)
+        if record.get("execution_reservation"):
+            SimpleNamespace(**scope)._execution().archive(record)
         del record["coordination"]
 
 
@@ -620,6 +630,8 @@ def issues(scope: dict, root: Path, state: dict, dag: dict) -> list[str]:
             if request["phase"] in {"STOP_CONFIRMED", "RELEASED"} and request["executor_identity"] is not None and not request["stop_observation_ref"]:
                 errors.append(f"{cell_id}: ownership release lacks an independent fence observation")
             errors.extend(_evidence_errors(api, root, request, cell_id))
+            if (record.get("result_ref") or request.get("scope_proof_ref")) and request.get("executor_identity") is None:
+                errors.append(f"{cell_id}: settled target lacks its recorded executor identity")
             if record.get("result_ref") and not request["scope_proof_ref"]:
                 errors.append(f"{cell_id}: settled target lacks authoritative Git scope evidence")
         except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -645,6 +657,19 @@ def _current(state: dict, args) -> tuple[dict, dict]:
     if (not request or request["generation"] != args.generation or request["token"] != args.token):
         raise ValueError("stale generation/token does not identify the current admitted attempt")
     return record, request
+
+
+def release_unlaunched(state: dict, cell_id: str, *, confirmed_no_launch: bool = False) -> None:
+    record = state["cells"][cell_id]
+    request = record["coordination"]
+    permitted = {"QUEUED", "ADMITTED"} | ({"STOP_CONFIRMED", "RELEASED"} if confirmed_no_launch else set())
+    if request["phase"] not in permitted or record.get("result_ref") or request.get("scope_proof_ref"):
+        raise ValueError("no-launch recovery requires an unexecuted, nonsettled current generation")
+    record["state"] = "COMPILED"
+    for key in ("worker_identity", "verifier_identity", "workspace_id"):
+        record.pop(key, None)
+    state["frontier"]["dispatched"] = sorted(set(state["frontier"]["dispatched"]) - {cell_id})
+    request["phase"] = "RELEASED"
 
 
 def command(scope: dict, args) -> int:
@@ -735,10 +760,11 @@ def command(scope: dict, args) -> int:
         if phase in {"QUEUED", "ADMITTED"}:
             # Under the capable protocol these states never authorize a writer.
             # Revoke their launch permission atomically with the claim release.
-            record["state"] = "COMPILED"
-            state["frontier"]["dispatched"] = sorted(set(state["frontier"]["dispatched"]) - {args.cell})
+            release_unlaunched(state, args.cell)
         request["phase"] = "RELEASED"
     elif action == "reassess":
+        if record.get("execution_reservation"):
+            raise ValueError("use execution reserve with a new launch intent after safe release to reassess this binding")
         if phase not in {"QUEUED", "RELEASED"} or record.get("state") != "COMPILED":
             raise ValueError("reassessment requires an unlaunched COMPILED declaration and released custody")
         state["coordination"]["history"].append(request)

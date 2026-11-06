@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-provider-session-mapping/1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "cell_id",
+    "attempt",
+    "reservation_id",
+    "fence",
+    "binding_digest",
+    "launch_intent_id",
+    "session_ref",
+    "context_session_ref",
+    "reviewer_identity",
+    "evidence"
+  ],
+  "properties": {
+    "schema": {
+      "const": "flyby/mission-control-provider-session-mapping/1"
+    },
+    "cell_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "reservation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "binding_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "launch_intent_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "session_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "context_session_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reviewer_identity": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ref",
+          "sha256"
+        ],
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    }
+  }
+}

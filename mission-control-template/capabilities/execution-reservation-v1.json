@@ -1,0 +1,11 @@
+{
+  "schema": "flyby/mission-control-capability-composition/1",
+  "capability": "execution-reservation/v1",
+  "requires": ["cell-coordination/v1"],
+  "optional_capabilities": ["lineage-preservation/v1"],
+  "execution_state_schema": "flyby/mission-control-execution-state/21",
+  "execution_state_schema_ref": "contracts/schemas/EXECUTION_STATE_SCHEMA_V21.json",
+  "authority": "CELL_COORDINATION_REQUEST",
+  "provider_launch_performed_by_runtime": false,
+  "termination": "EXPLICIT_INDEPENDENT_OPERATOR_FENCE"
+}

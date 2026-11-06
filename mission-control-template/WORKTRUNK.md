@@ -425,3 +425,99 @@ base. Preserve a failed candidate on its own ref before preparing that base, or
 compile an explicit successor. Recovery never resets or cleans a worker's
 checkout. Historical scope and fence evidence stays hash-checked across retries;
 changing underlying operator evidence blocks further authority transitions.
+
+## Exact execution reservations
+
+Initialize a new mission with `--execution-reservations` to bind the transport's
+task, seat, worker, claim/generation, project, provider, account and node identities
+to the exact mission instance, attempt and registered workspace. This opt-in
+includes cell coordination and seals execution-state v21. It also composes with
+`--lineage-preservation`; the execution capability declares the effective v21
+schema. Existing frozen missions and their schemas are unchanged.
+
+Create a binding using `schemas/EXECUTION_BINDING_SCHEMA_V1.json`, including the
+mission instance from execution state and the exact registered path, repository,
+base and distinct worker/verifier identities. The optional `workspace_origin`
+must match the registered effective origin. Duplicate keys, booleans as generation
+numbers, unknown fields, and ambiguous identities are rejected. These strings
+and hashes do not authenticate a provider, authorize a project, or replace the
+trusted transport's own ownership and source-evidence checks.
+
+```sh
+python path/to/mission/runtime/tools/mc.py execution reserve \
+  --root path/to/mission --binding binding.json --launch-intent-id stable-intent
+```
+
+Admission, claims, launch intent and binding share one durable state transaction.
+The versioned response reports reservation `phase` (`QUEUED` or `RESERVED`),
+the separate `coordination_phase`, `reservation_id`, `fence` and `binding_digest`. An exact repeat returns the same
+reservation; a different active binding or reused intent fails. Target `dispatch`
+cannot bypass the binding requirement. Eligible requests keep the existing FIFO
+queue, path scopes and dependency rules.
+
+Use `wt_mission prepare` without worker/verifier flags to register a workspace,
+then reserve its full binding. Prepare rejects those flags before creating a
+worktree in this mode.
+
+`execution inspect`, `launching`, `unknown`, `stop`, `confirm-stop`, `release`,
+and `retry` select `--cell`, `--reservation-id`, `--fence` and `--binding-digest`.
+`launching` also requires the actual durable `--executor-identity`; only the
+first transition returns `launch_authorized: true`. The transport records its own
+intent before its provider side effect. Lost replies and unknown outcomes never
+authorize a second launch. Direct coordination mutations and ordinary target
+retry cannot bypass these selectors. This runtime starts no provider and supplies
+no automatic termination proof.
+
+Repository-level `coordination relinquish --cell CELL --workspace-id ID` remains
+available after every claim for that repository is released, including a workspace
+never reserved. It checks registered custody and removes the mission's repository
+authority registration; it does not mutate a reservation. Register the exact
+workspace again before this mission requests further admission.
+
+`execution running --observation FILE` records a provider-session observation;
+`execution terminal --observation FILE` records its terminal outcome. Use the
+corresponding `PROVIDER_*_OBSERVATION_SCHEMA_V1.json` contracts. Both bind the
+exact attempt, reservation, fence, digest and launch intent. Retain the adapter's
+source record inside the mission and name its relative path and raw-file hash.
+The trusted adapter must authenticate, parse and correlate that source; an
+authority string or hash alone cannot authenticate it. Terminal evidence also
+requires an independent `execution confirm-stop` fence for that exact generation
+and the whole writer domain. The adapter observation and fence retain their own
+evidence; delayed observations can reconcile a still-current released reservation.
+Failure/cancellation cannot become ACCEPTED.
+
+The worker ContextReceipt must identify the observed provider session. If its
+session namespace differs, supply `running --session-mapping FILE` using
+`PROVIDER_SESSION_MAPPING_SCHEMA_V1.json`: the independent assigned verifier
+must bind both session references to retained evidence. The mapping is immutable.
+
+Settlement keeps the ordinary result/receipt/independent-adjudication contract,
+using the reservation's fence as `--generation`, ID as `--token` and exact
+`--binding-digest`. Retained session and terminal evidence are required first.
+Inspection
+returns the exact stored binding, cell outcome, evidence-file hashes and their
+canonical digest of exactly the result, ContextReceipt and adjudication file
+hashes. Lineage review and terminal/stop evidence are returned separately. ACCEPTED and
+`ownership_released` are separate observations. A trusted external adapter must
+match every binding field and its own dependency contract before completing any
+external work; this CLI does not complete another service's queue.
+
+An unlaunched queued/reserved request can be explicitly released, revoking its
+launch permission and retaining a receipt. After an uncertain launch transition,
+`execution release-no-launch --observation FILE` instead requires the exact
+`NO_LAUNCH_OBSERVATION_SCHEMA_V1.json` contract. Its trusted source must establish
+both that no provider started and that old launch authority cannot start later;
+an independent fence must cover the exact generation and writer domain. Missing sessions or expired leases
+are insufficient. Recovery archives the old reservation and receipt, returns
+COMPILED in the same attempt, and never fabricates worker acceptance. Reserve
+again with a new intent for a new fence. Exact recovery replay returns its immutable
+historical receipt even after a successor exists; conflicting replay fails.
+Repeated prelaunch release also returns its historical receipt without changing
+any successor reservation.
+
+A launched failed attempt requires terminal evidence, independent stop
+confirmation, release and `execution retry`. Historical inspection remains
+available by its exact old selectors; old selectors cannot mutate a successor.
+Historical no-launch reservations never inherit a later execution's result.
+Handoffs and dependency observations retain the reservation selector and binding
+digest, which is also bound into the accepted scope proof.

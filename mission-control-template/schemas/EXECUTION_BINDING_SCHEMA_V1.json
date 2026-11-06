@@ -1,0 +1,132 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "mission_id",
+    "mission_instance_id",
+    "cell_id",
+    "attempt",
+    "workspace_id",
+    "workspace_path",
+    "repository",
+    "base_sha",
+    "worker_identity",
+    "verifier_identity",
+    "task_id",
+    "seat_id",
+    "worker_id",
+    "claim_id",
+    "claim_generation",
+    "worker_generation",
+    "project_id",
+    "provider",
+    "account_id",
+    "node_id"
+  ],
+  "properties": {
+    "mission_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "mission_instance_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "cell_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "workspace_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "workspace_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repository": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "base_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "worker_identity": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "verifier_identity": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "seat_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "worker_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "claim_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "claim_generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "worker_generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "provider": {
+      "enum": [
+        "codex",
+        "agy",
+        "claude"
+      ]
+    },
+    "account_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "node_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "workspace_origin": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-execution-binding/1"
+}

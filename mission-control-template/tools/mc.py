@@ -32,6 +32,8 @@ RESULT_SCHEMA = "flyby/mission-control-result/16"
 STATE_SCHEMA = "flyby/mission-control-execution-state/16"
 COORDINATION_SCHEMA = "flyby/mission-control-execution-state/19"
 COORDINATION_CAPABILITY = "contracts/capabilities/cell-coordination-v1.json"
+RESERVATION_STATE_SCHEMA = "flyby/mission-control-execution-state/21"
+RESERVATION_CAPABILITY_REF = "contracts/capabilities/execution-reservation-v1.json"
 COMBINED_STATE_SCHEMA = "flyby/mission-control-execution-state/20"
 LINEAGE_STATE_SCHEMA = "flyby/mission-control-execution-state/18"
 LINEAGE_CORPUS_SCHEMA = "flyby/mission-control-target-corpus/17"
@@ -87,12 +89,32 @@ def _safe_scope_path(value: str) -> bool:
     return bool(normalized) and all(segment not in {"", ".", ".."} for segment in normalized.split("/"))
 
 
-def _state_schema_ref(coordination: bool, lineage: bool) -> str:
+def _state_schema_ref(coordination: bool, lineage: bool, reservations: bool = False) -> str:
+    if reservations:
+        return "contracts/schemas/EXECUTION_STATE_SCHEMA_V21.json"
     if coordination and lineage:
         return "contracts/schemas/EXECUTION_STATE_SCHEMA_V20.json"
     if coordination:
         return "contracts/schemas/EXECUTION_STATE_SCHEMA_V19.json"
     return LINEAGE_STATE_SCHEMA_REF if lineage else "contracts/schemas/EXECUTION_STATE_SCHEMA.json"
+
+
+def _execution_enabled(root: Path) -> bool:
+    try:
+        return RESERVATION_CAPABILITY_REF in load_json(root / "TEMPLATE_LOCK.json").get("assets", {})
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def _execution():
+    if not (TOOLS_DIR / "execution_reservation.py").is_file():
+        raise ValueError("frozen runtime lacks execution-reservation/v1; initialize a new capable mission")
+    import execution_reservation
+    return execution_reservation
+
+
+def cmd_execution(args: argparse.Namespace) -> int:
+    return _execution().command(globals(), args)
 
 
 def _coordination_enabled(root: Path) -> bool:
@@ -111,15 +133,19 @@ def _coordination():
 
 def _stable_lock_required(root: Path) -> bool:
     if (_coordination_enabled(root) or (root / COORDINATION_CAPABILITY).exists()
-            or lineage_enabled(root) or (root / LINEAGE_CAPABILITY_REF).exists()):
+            or lineage_enabled(root) or (root / LINEAGE_CAPABILITY_REF).exists()
+            or _execution_enabled(root) or (root / RESERVATION_CAPABILITY_REF).exists()):
         return True
     try:
-        return load_json(root / "control/EXECUTION_STATE.json").get("schema") in {COORDINATION_SCHEMA, LINEAGE_STATE_SCHEMA, COMBINED_STATE_SCHEMA}
+        return load_json(root / "control/EXECUTION_STATE.json").get("schema") in {COORDINATION_SCHEMA, LINEAGE_STATE_SCHEMA, COMBINED_STATE_SCHEMA, RESERVATION_STATE_SCHEMA}
     except (OSError, ValueError, TypeError):
         return False
 
 
 def cmd_coordination(args: argparse.Namespace) -> int:
+    if (_execution_enabled(Path(args.root).resolve()) and args.coordination_command in
+            {"launching", "running", "unknown", "stop", "confirm-stop", "release", "reassess"}):
+        raise ValueError("use execution with reservation ID, fence and binding digest for this capable target")
     return _coordination().command(globals(), args)
 
 
@@ -1160,6 +1186,7 @@ def _collect_v16_issues(root: Path) -> list[dict[str, str]]:
         out.append(issue("MC0160", f"MISSION.json schema violation: {error}", "MISSION.json violates the canonical author-input schema", "correct MISSION.json and rerun doctor"))
     has_coordination = COORDINATION_CAPABILITY in lock.get("assets", {})
     has_lineage = LINEAGE_CAPABILITY_REF in lock.get("assets", {})
+    has_reservations = RESERVATION_CAPABILITY_REF in lock.get("assets", {})
     corpus_schema_ref = LINEAGE_CORPUS_SCHEMA_REF if has_lineage else "contracts/schemas/TARGET_CORPUS_SCHEMA.json"
     if has_lineage and any(ref not in lock.get("assets", {}) for ref in
                            (LINEAGE_STATE_SCHEMA_REF, LINEAGE_CORPUS_SCHEMA_REF,
@@ -1167,7 +1194,7 @@ def _collect_v16_issues(root: Path) -> list[dict[str, str]]:
                             "runtime/tools/lineage_preservation.py")):
         out.append(issue("MC0400", "lineage capability assets are not fully sealed",
                          "the opt-in capability is incomplete", "restore its exact locked assets"))
-    if has_coordination and has_lineage:
+    if has_coordination and has_lineage and not has_reservations:
         composition_ref = "contracts/capabilities/lineage-coordination-v1.json"
         try:
             composition = load_json(root / composition_ref)
@@ -1180,7 +1207,7 @@ def _collect_v16_issues(root: Path) -> list[dict[str, str]]:
         except (OSError, ValueError) as exc:
             out.append(issue("MC0400", str(exc), "the capability composition is incomplete",
                              "restore the exact locked composition and state schema"))
-    state_schema_ref = _state_schema_ref(has_coordination, has_lineage)
+    state_schema_ref = _state_schema_ref(has_coordination, has_lineage, has_reservations)
     state_errors = schema_errors(root, state_schema_ref, state)
     for error in state_errors:
         out.append(issue("MC0162", f"execution-state schema violation: {error}", "mutable execution state is malformed", "restore or repair execution state before any transition"))
@@ -1190,6 +1217,15 @@ def _collect_v16_issues(root: Path) -> list[dict[str, str]]:
                 out.append(issue("MC0410", error, "coordination authority or evidence diverged", "restore exact custody and reconcile the current generation; do not relaunch"))
         except (OSError, ValueError) as exc:
             out.append(issue("MC0410", str(exc), "capability runtime unavailable", "restore the exact locked capability assets"))
+    if has_reservations and not state_errors:
+        try:
+            if not has_coordination:
+                raise ValueError("execution reservations require coordinated target ownership")
+            for error in _execution().issues(globals(), root, state):
+                out.append(issue("MC0411", error, "reservation binding or history diverged",
+                                 "restore exact custody and inspect the recorded generation; do not relaunch"))
+        except (OSError, ValueError) as exc:
+            out.append(issue("MC0411", str(exc), "reservation capability unavailable", "restore exact locked assets"))
     for schema_ref, value, code, label in (
         ("contracts/schemas/TEMPLATE_LOCK_SCHEMA.json", lock, "MC0221", "TEMPLATE_LOCK"),
         ("contracts/schemas/CURRENT_AUTHORITY_SCHEMA.json", current, "MC0222", "CURRENT_AUTHORITY"),
@@ -1975,7 +2011,8 @@ def _collect_v16_issues(root: Path) -> list[dict[str, str]]:
     if missing_frontier_provenance:
         out.append(issue("MC0236", f"canonical cells lack source frontier provenance: {missing_frontier_provenance}", "DAG contains cells that cannot be traced to a stored compiler input", "restore each cell's immutable source frontier"))
 
-    expected_state_schema = (COMBINED_STATE_SCHEMA if has_coordination and has_lineage else
+    expected_state_schema = (RESERVATION_STATE_SCHEMA if has_reservations else
+                             COMBINED_STATE_SCHEMA if has_coordination and has_lineage else
                              COORDINATION_SCHEMA if has_coordination else LINEAGE_STATE_SCHEMA if has_lineage else STATE_SCHEMA)
     if state.get("schema") != expected_state_schema or state.get("mission_id") != mid:
         out.append(issue("MC0175", "execution state schema/mission mismatch", "state belongs to a different mission/revision", "regenerate execution state"))
@@ -2456,7 +2493,7 @@ def _template_root_from_source_cli() -> Path:
     return root
 
 
-def _template_provenance(template_root: Path, *, coordination: bool = False, lineage: bool = False) -> dict[str, str | None]:
+def _template_provenance(template_root: Path, *, coordination: bool = False, lineage: bool = False, reservations: bool = False) -> dict[str, str | None]:
     try:
         commit_proc = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=template_root, check=True, capture_output=True, text=True,
@@ -2472,7 +2509,7 @@ def _template_provenance(template_root: Path, *, coordination: bool = False, lin
         )
         repo_root = Path(repo_proc.stdout.strip()).resolve()
         sources = [template_root / "TEMPLATE.json"] + [
-            source for source, _ in _template_asset_pairs(template_root, template_root, coordination=coordination, lineage=lineage)
+            source for source, _ in _template_asset_pairs(template_root, template_root, coordination=coordination, lineage=lineage, reservations=reservations)
         ]
         relative_sources = [source.resolve().relative_to(repo_root).as_posix() for source in sources]
         tracked_proc = subprocess.run(
@@ -2517,7 +2554,7 @@ def _template_provenance(template_root: Path, *, coordination: bool = False, lin
         }
 
 
-def _template_asset_pairs(template_root: Path, root: Path, *, coordination: bool = False, lineage: bool = False) -> list[tuple[Path, Path]]:
+def _template_asset_pairs(template_root: Path, root: Path, *, coordination: bool = False, lineage: bool = False, reservations: bool = False) -> list[tuple[Path, Path]]:
     pairs: list[tuple[Path, Path]] = []
     for source_dir, destination_dir in (
         (template_root / "schemas", root / "contracts" / "schemas"),
@@ -2525,6 +2562,10 @@ def _template_asset_pairs(template_root: Path, root: Path, *, coordination: bool
     ):
         for source in sorted(source_dir.rglob("*")):
             if source.is_file():
+                if source.name in {"EXECUTION_STATE_SCHEMA_V21.json", "EXECUTION_BINDING_SCHEMA_V1.json",
+                                    "PROVIDER_SESSION_OBSERVATION_SCHEMA_V1.json", "PROVIDER_TERMINAL_OBSERVATION_SCHEMA_V1.json",
+                                    "NO_LAUNCH_OBSERVATION_SCHEMA_V1.json", "PROVIDER_SESSION_MAPPING_SCHEMA_V1.json"} and not reservations:
+                    continue
                 optional_lineage = {"EXECUTION_STATE_SCHEMA_V18.json", "TARGET_CORPUS_SCHEMA_V17.json",
                                     "LINEAGE_PRESERVATION_REVIEW_SCHEMA_V1.json"}
                 if source.name in optional_lineage and not lineage:
@@ -2544,9 +2585,12 @@ def _template_asset_pairs(template_root: Path, root: Path, *, coordination: bool
             (template_root / "capabilities/lineage-preservation-v1.json", root / LINEAGE_CAPABILITY_REF),
             (template_root / "tools/lineage_preservation.py", root / "runtime/tools/lineage_preservation.py"),
         ))
-    if coordination and lineage:
+    if coordination and lineage and not reservations:
         pairs.append((template_root / "capabilities/lineage-coordination-v1.json",
                       root / "contracts/capabilities/lineage-coordination-v1.json"))
+    if reservations:
+        pairs.extend(((template_root / "capabilities/execution-reservation-v1.json", root / RESERVATION_CAPABILITY_REF),
+                      (template_root / "tools/execution_reservation.py", root / "runtime/tools/execution_reservation.py")))
     pairs.extend((
         (template_root / "tools" / "mc.py", root / "runtime" / "tools" / "mc.py"),
         (template_root / "tools" / "wt_mission.py", root / "runtime" / "tools" / "wt_mission.py"),
@@ -2556,9 +2600,9 @@ def _template_asset_pairs(template_root: Path, root: Path, *, coordination: bool
     return pairs
 
 
-def _copy_assets(template_root: Path, root: Path, *, coordination: bool = False, lineage: bool = False) -> list[str]:
+def _copy_assets(template_root: Path, root: Path, *, coordination: bool = False, lineage: bool = False, reservations: bool = False) -> list[str]:
     copied: list[str] = []
-    for source, destination in _template_asset_pairs(template_root, root, coordination=coordination, lineage=lineage):
+    for source, destination in _template_asset_pairs(template_root, root, coordination=coordination, lineage=lineage, reservations=reservations):
         if not source.is_file():
             raise FileNotFoundError(f"template asset missing: {source}")
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -2617,9 +2661,10 @@ def cmd_init(args: argparse.Namespace) -> int:
         return 1
     for rel in ("control", "corpus", "contracts/schemas", "contracts/policies", "runtime/tools", "runtime/tests", "frontiers/F000", "evidence", "handoff"):
         (root / rel).mkdir(parents=True, exist_ok=True)
-    coordination = bool(getattr(args, "cell_coordination", False))
+    reservations = bool(getattr(args, "execution_reservations", False))
+    coordination = bool(getattr(args, "cell_coordination", False)) or reservations
     use_lineage = bool(getattr(args, "lineage_preservation", False))
-    copied = _copy_assets(template_root, root, coordination=coordination, lineage=use_lineage)
+    copied = _copy_assets(template_root, root, coordination=coordination, lineage=use_lineage, reservations=reservations)
     target_map = {t["repository"]: t["baseline_sha"].lower() for t in spec["target_repositories"]}
     current = {
         "schema": AUTHORITY_SCHEMA,
@@ -2661,6 +2706,10 @@ def cmd_init(args: argparse.Namespace) -> int:
         state["mission_root"] = str(root.resolve())
     if coordination and use_lineage:
         state["schema"] = COMBINED_STATE_SCHEMA
+    if reservations:
+        state["schema"] = RESERVATION_STATE_SCHEMA
+        state["mission_instance_id"] = state["coordination"]["instance_id"]
+        state["mission_root"] = str(root.resolve())
     compiler = {
         "schema": "flyby/mission-control-compiler-control/16",
         "mission_id": spec["mission_id"],
@@ -2733,7 +2782,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     write_json(root / "TEMPLATE_LOCK.json", {
         "schema": "flyby/mission-control-template-lock/16",
         "template_schema": TEMPLATE_SCHEMA,
-        **_template_provenance(template_root, coordination=coordination, lineage=use_lineage),
+        **_template_provenance(template_root, coordination=coordination, lineage=use_lineage, reservations=reservations),
         "source_template_root": "mission-control-template",
         "assets": assets,
     })
@@ -2820,7 +2869,7 @@ def _load_semantic_input(root: Path, source_file: Path, destination: Path, schem
         return 1
     lifecycle = state.get("lifecycle")
     valid_lineage_bootstrap = (lifecycle == LINEAGE_BOOTSTRAP and lineage_enabled(root)
-                               and state.get("schema") in {LINEAGE_STATE_SCHEMA, COMBINED_STATE_SCHEMA})
+                               and state.get("schema") in {LINEAGE_STATE_SCHEMA, COMBINED_STATE_SCHEMA, RESERVATION_STATE_SCHEMA})
     if lifecycle != "BOOTSTRAPPED" and not valid_lineage_bootstrap:
         print(f"{label} can change only before baseline compilation; lifecycle is {lifecycle}", file=sys.stderr)
         return 1
@@ -3597,6 +3646,9 @@ def cmd_retry(args: argparse.Namespace) -> int:
     if not cell or cell.get("kind") == "BARRIER":
         print("retry requires an executable cell", file=sys.stderr)
         return 1
+    if (_execution_enabled(root) and isinstance(cell.get("target"), dict)
+            and not getattr(args, "_execution_selected", False)):
+        raise ValueError("use execution retry with the exact reservation selectors for this capable target")
     allowed_lifecycles = _PHASE_LIFECYCLES[_cell_phase(dag, args.cell)]
     if state["lifecycle"] not in allowed_lifecycles:
         print(f"retry for {args.cell} blocked from lifecycle {state['lifecycle']}", file=sys.stderr)
@@ -3641,6 +3693,8 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     if cell["kind"] == "BARRIER":
         print("barriers are crossed with `mc barrier accept`, not dispatched", file=sys.stderr)
         return 1
+    if _execution_enabled(root) and isinstance(cell.get("target"), dict):
+        raise ValueError("use execution reserve with an exact transport binding for this capable target")
     if _coordination_enabled(root) and isinstance(cell.get("target"), dict):
         return _coordination().dispatch(globals(), args)
     allowed_lifecycles = _PHASE_LIFECYCLES[_cell_phase(dag, args.cell)]
@@ -3844,6 +3898,8 @@ def cmd_settle(args: argparse.Namespace) -> int:
     result = load_json(Path(args.result).resolve())
     receipt = load_json(Path(args.context_receipt).resolve())
     adjudication = load_json(Path(args.adjudication).resolve())
+    if record.get("execution_reservation"):
+        _execution().validate_settlement(globals(), root, record, result, receipt, args)
     errors = validate_result(root, result, args.cell, packet)
     errors.extend(validate_context_receipt(root, receipt, args.cell, packet["context_manifest_ref"], packet["base_head"]))
     errors.extend(validate_context_accounting(root, receipt, packet, str(result.get("outcome"))))
@@ -4654,7 +4710,8 @@ def cmd_repair_bootstrap(args: argparse.Namespace) -> int:
         print("bootstrap repair requires a valid existing template lock", file=sys.stderr)
         return 1
     use_lineage = LINEAGE_CAPABILITY_REF in locked_assets
-    asset_pairs = _template_asset_pairs(template_root, root, coordination=coordination, lineage=use_lineage)
+    reservations = RESERVATION_CAPABILITY_REF in locked_assets
+    asset_pairs = _template_asset_pairs(template_root, root, coordination=coordination, lineage=use_lineage, reservations=reservations)
     source_assets = {
         destination.relative_to(root).as_posix(): sha256(source)
         for source, destination in asset_pairs
@@ -4690,7 +4747,7 @@ def cmd_repair_bootstrap(args: argparse.Namespace) -> int:
     top_level_dirs = {name: (root / name).exists() for name in ("contracts", "runtime")}
 
     try:
-        copied = _copy_assets(template_root, root, coordination=coordination, lineage=use_lineage)
+        copied = _copy_assets(template_root, root, coordination=coordination, lineage=use_lineage, reservations=reservations)
         for path in unlocked_generated:
             path.unlink(missing_ok=True)
         write_json(lock_path, existing_lock)
@@ -4732,6 +4789,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     init = sub.add_parser("init")
     init.add_argument("--mission", required=True)
+    init.add_argument("--execution-reservations", action="store_true", help="bind exact transport identities to coordinated target admission in a new mission")
     init.add_argument("--cell-coordination", action="store_true", help="enable durable target ownership for a new mission")
     init.add_argument("--lineage-preservation", action="store_true",
                       help="enable the versioned same-repository lineage preservation contract for a new mission")
@@ -4806,6 +4864,7 @@ def build_parser() -> argparse.ArgumentParser:
     settle.add_argument("--adjudication", required=True)
     settle.add_argument("--generation", type=int)
     settle.add_argument("--token")
+    settle.add_argument("--binding-digest")
     settle.add_argument("--lineage-review")
     settle.set_defaults(func=cmd_settle)
     lineage = sub.add_parser("lineage")
@@ -4834,6 +4893,8 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.set_defaults(func=cmd_repair_bootstrap)
     if (TOOLS_DIR / "coordination_v1.py").is_file():
         _coordination().add_parser(sub, cmd_coordination)
+    if (TOOLS_DIR / "execution_reservation.py").is_file():
+        _execution().add_parser(sub, cmd_execution)
     return parser
 
 
@@ -4848,8 +4909,10 @@ def main(argv: Iterable[str] | None = None) -> int:
         return int(args.func(args))
     try:
         capable_init = args.command == "init" and bool(
-            getattr(args, "cell_coordination", False) or getattr(args, "lineage_preservation", False))
-        coordination_init = args.command == "init" and bool(getattr(args, "cell_coordination", False))
+            getattr(args, "cell_coordination", False) or getattr(args, "lineage_preservation", False)
+            or getattr(args, "execution_reservations", False))
+        coordination_init = args.command == "init" and bool(
+            getattr(args, "cell_coordination", False) or getattr(args, "execution_reservations", False))
         if coordination_init and any((parent / ".git").exists() for parent in (root, *root.parents)):
             raise ValueError("coordination authority must be outside target Git worktrees")
         if capable_init and any((root / name).exists() for name in
