@@ -178,8 +178,9 @@ outside the runner's per-job temporary-directory cleanup.
 Preparation verifies the original repository, commit/tree and sealed byte hashes;
 the job independently checks them again before the complete runner. Credentials
 are not copied into this fixture or granted to the job. Its raw proof logs persist
-under `$RUNNER_TEMP/../worktrunk-cell-private-proof/<run>-<attempt>`, outside
-per-job cleanup and the public artifact root; the artifact retains candidate/fixture identity,
+under `$HOME/worktrunk-cell-private-proof/<run>-<attempt>` with owner-only
+permissions. The verified runner cleans all of `_work`, `.cache` and `.npm`;
+proofs live outside those roots and the public artifact root; the artifact retains candidate/fixture identity,
 layer/command outcomes, timing and log hashes. Required failures still fail the job.
 The focused public-source fallback runs only if the complete proof fails and the
 run has not been cancelled. Long verification steps honor cancellation. The
