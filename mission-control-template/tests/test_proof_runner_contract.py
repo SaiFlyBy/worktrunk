@@ -180,5 +180,17 @@ class ProofRunnerContractSuite(unittest.TestCase):
                 self.assertEqual(expected, actual)
 
 
+    def test_08_focused_gate_does_not_waive_canonical_failure(self) -> None:
+        workflow = (REPO / ".github" / "workflows" / "mission-control-bridge.yaml").read_text(encoding="utf-8")
+        candidate = workflow.split("  cell-candidate:", 1)[1]
+        self.assertNotIn("continue-on-error", candidate)
+        self.assertIn('tools/run_template_suite.py --expected-sha "$EXPECTED_CANDIDATE" --require-clean', candidate)
+        focused = candidate.split("      - name: Run current-source coordination and bridge regressions", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("always() && steps.candidate-bound.outcome == 'success' && steps.candidate-built.outcome == 'success'", focused)
+        self.assertIn("mission-control-template/tests/test_cell_coordination.py", focused)
+        self.assertIn("mission-control-template/tests/test_wt_mission.py", focused)
+        self.assertIn("sys.exit(any(result['state'] != 'PASS' for result in results))", focused)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

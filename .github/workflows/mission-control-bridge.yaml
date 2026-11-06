@@ -162,6 +162,48 @@ jobs:
           unset MC_SOURCE_PROOF_REPO
           export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
           python tools/run_template_suite.py --expected-sha "$EXPECTED_CANDIDATE" --require-clean --evidence-dir "$RUNNER_TEMP/worktrunk-cell-proof/canonical"
+      - name: Run current-source coordination and bridge regressions
+        if: ${{ always() && steps.candidate-bound.outcome == 'success' && steps.candidate-built.outcome == 'success' }}
+        working-directory: candidate
+        shell: bash
+        run: |
+          unset MC_SOURCE_PROOF_REPO
+          export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+          python - <<'PYTHON'
+          import hashlib, json, os, pathlib, runpy, sys
+          root = pathlib.Path.cwd()
+          evidence = pathlib.Path(os.environ['RUNNER_TEMP'], 'worktrunk-cell-proof', 'focused')
+          evidence.mkdir(parents=True, exist_ok=True)
+          runner = runpy.run_path(str(root / 'mission-control-template/tools/run_template_suite.py'))
+          commands = [
+              ['mission-control-template/tests/test_reference_fixture_byte_custody.py'],
+              ['mission-control-template/tests/test_proof_runner_contract.py',
+               'ProofRunnerContractSuite.test_01_required_skip_is_blocking',
+               'ProofRunnerContractSuite.test_02_clean_gate_covers_entire_repository',
+               'ProofRunnerContractSuite.test_03_command_timeout_is_terminal_and_hashed',
+               'ProofRunnerContractSuite.test_06_fork_bridge_workflow_tests_current_source',
+               'ProofRunnerContractSuite.test_07_manual_candidate_does_not_start_general_bridge',
+               'ProofRunnerContractSuite.test_08_focused_gate_does_not_waive_canonical_failure'],
+              ['mission-control-template/tests/test_runtime_state_machine.py'],
+              ['mission-control-template/tests/test_cell_coordination.py'],
+              ['mission-control-template/tests/test_evidence_based_source_qualification.py'],
+              ['mission-control-template/tests/test_wt_mission.py'],
+              ['.github/tests/ci_policy_test.py'],
+          ]
+          results = []
+          for index, command in enumerate(commands, 1):
+              stdout, stderr = evidence / f'{index:02d}.stdout.txt', evidence / f'{index:02d}.stderr.txt'
+              result = runner['execute_command']([sys.executable, *command], cwd=root,
+                  stdout_path=stdout, stderr_path=stderr, timeout_seconds=900)
+              result.update({'stdout': stdout.name, 'stderr': stderr.name})
+              results.append(result)
+              (evidence / 'summary.json').write_text(json.dumps({'candidate': os.environ['EXPECTED_CANDIDATE'],
+                  'commands': results}, indent=2))
+              print(f"{result['state']} rc={result['exit_code']} :: {' '.join(command)}", flush=True)
+              print(stdout.read_text(), end='', flush=True)
+              print(stderr.read_text(), end='', flush=True)
+          sys.exit(any(result['state'] != 'PASS' for result in results))
+          PYTHON
       - name: Verify ordinary and changed-base bridge lifecycle
         if: ${{ always() && steps.candidate-bound.outcome == 'success' && steps.candidate-built.outcome == 'success' }}
         working-directory: candidate

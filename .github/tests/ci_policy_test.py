@@ -33,7 +33,7 @@ ENTRY_JOBS = {
 ENTRY_GUARD = ("${{ github.event_name != 'pull_request' || "
                "(github.event.pull_request.head.repo.id != null && "
                'github.event.pull_request.head.repo.id == github.event.repository.id) }}')
-BRIDGE_GUARD = ENTRY_GUARD[:-3] + " && (github.event_name != 'workflow_dispatch' || inputs.candidate_sha == '') }}"
+BRIDGE_GUARD = "${{ (" + ENTRY_GUARD[4:-3] + ")" + " && (github.event_name != 'workflow_dispatch' || inputs.candidate_sha == '') }}"
 CANDIDATE_GUARD = "${{ github.repository_id == '1443337118' && github.actor_id == '226779263' && github.triggering_actor == 'SaiFlyBy' && github.event_name == 'workflow_dispatch' && inputs.candidate_sha != '' }}"
 AFFECTED_GUARD = ("${{ github.event_name == 'pull_request' && "
                   'github.event.pull_request.head.repo.id != null && '
