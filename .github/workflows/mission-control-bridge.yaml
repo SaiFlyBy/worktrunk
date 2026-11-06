@@ -42,7 +42,7 @@ concurrency:
 
 jobs:
   bridge:
-    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id) && (github.event_name != 'workflow_dispatch' || inputs.candidate_sha == '') }}
+    if: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id)) && (github.event_name != 'workflow_dispatch' || inputs.candidate_sha == '') }}
     strategy:
       fail-fast: false
       matrix:

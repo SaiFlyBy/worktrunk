@@ -150,5 +150,35 @@ class ProofRunnerContractSuite(unittest.TestCase):
                 self.assertRegex(action, r"@[0-9a-f]{40}$", action)
 
 
+    def test_07_manual_candidate_does_not_start_general_bridge(self) -> None:
+        workflow = (REPO / ".github" / "workflows" / "mission-control-bridge.yaml").read_text(encoding="utf-8")
+        bridge = workflow.split("  bridge:\n", 1)[1].split("    strategy:", 1)[0]
+        condition = re.search(r"if: \$\{\{ (.+) \}\}", bridge).group(1)
+        replacements = {
+            "github.event.pull_request.head.repo.id": "head_repo",
+            "github.event.repository.id": "repository",
+            "github.event_name": "event",
+            "inputs.candidate_sha": "candidate",
+        }
+        for source, name in replacements.items():
+            condition = condition.replace(source, name)
+        condition = condition.replace("&&", " and ").replace("||", " or ").replace("null", "None")
+        cases = [
+            ("workflow_dispatch", "a" * 40, None, False),
+            ("workflow_dispatch", "", None, True),
+            ("pull_request", "", 1443337118, True),
+            ("pull_request", "", 7, False),
+            ("pull_request", "", None, False),
+            ("push", "", None, True),
+        ]
+        for event, candidate, head_repo, expected in cases:
+            with self.subTest(event=event, candidate=candidate, head_repo=head_repo):
+                actual = eval(condition, {"__builtins__": {}}, {
+                    "event": event, "candidate": candidate, "head_repo": head_repo,
+                    "repository": 1443337118,
+                })
+                self.assertEqual(expected, actual)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
