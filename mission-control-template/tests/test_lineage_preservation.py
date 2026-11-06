@@ -275,6 +275,34 @@ class GitLineageSuite(unittest.TestCase):
 
 
 class AdoptionSuite(unittest.TestCase):
+    def test_malformed_preservation_files_are_diagnostics_without_state_changes(self) -> None:
+        import json
+        import sys
+        with tempfile.TemporaryDirectory(prefix="mc-lineage-malformed-contract-") as temp:
+            root = Path(temp)
+            (root / "MISSION.json").write_bytes((ROOT / "examples/reference-mission/MISSION.json").read_bytes())
+            proc = subprocess.run([sys.executable, str(ROOT / "tools/mc.py"), "init",
+                                   "--mission", str(root / "MISSION.json"), "--lineage-preservation"],
+                                  capture_output=True, text=True)
+            self.assertEqual(0, proc.returncode, proc.stderr)
+            corpus_path = root / "corpus/TARGET_MUTATIONS.json"
+            corpus = json.loads(corpus_path.read_text(encoding="utf-8"))
+            state_path = root / "control/EXECUTION_STATE.json"
+            before = state_path.read_bytes()
+            for files in (None, {}, [{"role": [], "path": {}}]):
+                with self.subTest(files=files):
+                    corpus["provenance_materialization"].update(
+                        mode="SAME_REPOSITORY_NO_NEW_HARVEST",
+                        preservation={"repository": "example/target", "policy_base_sha": "a" * 40,
+                                      "protected_files": files})
+                    corpus_path.write_text(json.dumps(corpus), encoding="utf-8")
+                    proc = subprocess.run([sys.executable, str(root / "runtime/tools/mc.py"),
+                                           "doctor", "--root", str(root)], capture_output=True, text=True)
+                    self.assertNotEqual(0, proc.returncode)
+                    self.assertIn("MC0402", proc.stdout + proc.stderr)
+                    self.assertNotIn("Traceback", proc.stderr)
+                    self.assertEqual(before, state_path.read_bytes())
+
     def test_lineage_initialization_uses_the_authority_lock_across_temp_directories(self) -> None:
         import os
         import sys

@@ -1303,6 +1303,8 @@ def _collect_v16_issues(root: Path) -> list[dict[str, str]]:
             if (not has_lineage or not isinstance(preservation, dict)
                     or not (TOOLS_DIR / "lineage_preservation.py").is_file()):
                 problems.append("the versioned lineage capability and preservation contract are required")
+            elif schema_errors(root, LINEAGE_CORPUS_SCHEMA_REF, target_corpus):
+                problems.append("the versioned preservation corpus is structurally invalid")
             else:
                 from lineage_preservation import _safe_git_path, validate_target_profile
                 repository = preservation.get("repository")

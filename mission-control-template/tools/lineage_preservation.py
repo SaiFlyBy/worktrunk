@@ -41,6 +41,8 @@ def validate_target_profile(repository: Any, items: Any) -> list[str]:
         return ["the target profile requires exactly its four protected files"]
     if not all(isinstance(item, dict) for item in items):
         return ["the target profile contains a malformed protected file"]
+    if any(not isinstance(item.get("role"), str) or not isinstance(item.get("path"), str) for item in items):
+        return ["the target profile contains a malformed protected role or path"]
     if len({item.get("role") for item in items}) != len(PROFILE_PATHS):
         return ["the target profile requires each protected role exactly once"]
     by_role = {item.get("role"): item for item in items}
