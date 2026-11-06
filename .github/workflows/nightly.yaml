@@ -148,7 +148,7 @@ jobs:
     - run: cargo hack test --feature-powerset
 
   full-tests:
-    # The full nextest suite on the standard linux/macos/windows matrix —
+    # The full nextest suite on the standard linux/windows matrix —
     # mirrors ci.yaml's PR `test` job. This is the safety net for the gaps
     # cargo-affected can't cover: tests it under-selects, plus the non-Rust /
     # build inputs it can't trace (`include_str!`, templates, build.rs,
@@ -158,7 +158,7 @@ jobs:
     # means affected missed something, and that must not redden main — nightly
     # failures are non-blocking and maintainer-investigated. Complements feature-powerset
     # (Linux, feature combos) and release-target (cross triples) by covering
-    # the standard 3-OS matrix that neither runs. A fourth row runs the same
+    # the standard Linux/Windows matrix that neither runs. A third row runs the same
     # job with the minimum supported Git. At the affected-only flip, ci.yaml's
     # `test` job is deleted and this becomes the sole full run.
     needs: gate
@@ -172,8 +172,6 @@ jobs:
           - os: ubuntu-24.04
             name: git-2.43.0
             git: '2.43.0'
-          - os: macos-26
-            name: macos
           - os: windows-2025
             name: windows
     runs-on: ${{ matrix.os }}
@@ -230,14 +228,14 @@ jobs:
   release-target:
     # Build and run the test suite on the release triples that ci.yaml's
     # `test` matrix doesn't cover — `dist-workspace.toml` ships musl Linux
-    # (x86_64 + arm64) and Intel macOS, but the test matrix is glibc Linux,
-    # arm64 macOS, and Windows. Without this, a regression on those targets
+    # (x86_64 + arm64), while the test matrix is glibc Linux and Windows.
+    # Without this, a regression on those targets
     # first surfaces at release-tag time, which blocks the release.
     #
     # Runs the integration suite (default features, no
     # `shell-integration-tests`) — covers file IO, command spawning, and
     # output rendering on the cross-target triple, which is where
-    # musl-vs-glibc and intel-vs-arm divergence shows up. Shell-integration
+    # musl-vs-glibc and x86_64-vs-arm64 divergence shows up. Shell-integration
     # PTY tests are intentionally off because they read $SHELL from the
     # runner env, which resolves differently on `ubuntu-24.04-arm` and
     # masks musl/arm signal with environment noise.
@@ -253,8 +251,6 @@ jobs:
           - target: aarch64-unknown-linux-musl
             runner: ubuntu-24.04-arm
             install: musl-tools
-          - target: x86_64-apple-darwin
-            runner: macos-26-intel
     name: release-target (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
     steps:
@@ -267,7 +263,7 @@ jobs:
 
     - uses: ./.github/actions/test-setup
       with:
-        # Cross-compiles musl/Intel targets the shared cache never builds, so
+        # Cross-compiles musl targets the shared cache never builds, so
         # it restore-misses anyway — and we don't want these one-off release
         # triples writing their own caches against the 10 GB cap.
         save-cache: "false"
