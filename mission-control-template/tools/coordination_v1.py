@@ -402,6 +402,27 @@ def _sweep(api, root: Path, dag: dict, state: dict) -> None:
             state["frontier"]["dispatched"] = sorted(set(state["frontier"]["dispatched"]) | {cid})
 
 
+def control_dispatch_blockers(dag: dict, state: dict, cell: dict) -> list[str]:
+    """Retained target ownership also fences the legacy control dispatch path.
+
+    Control cells have no target workspace or target launch protocol. Their
+    immediate dispatch still shares this authority's transaction and must not
+    bypass a coordinated target's unreleased dependencies, claims or class.
+    """
+    blockers = ["dependency_release:" + dep for dep in cell.get("dependencies", [])
+                if state["cells"].get(dep, {}).get("coordination", {}).get("phase") not in {None, "RELEASED"}]
+    for peer_id, record in state["cells"].items():
+        request = record.get("coordination")
+        if not request or request["phase"] in {"QUEUED", "RELEASED"}:
+            continue
+        bound = request["binding"]
+        if bound["conflict_class"] == cell.get("conflict_class"):
+            blockers.append(f"active:{peer_id}:conflict_class")
+        blockers.extend(f"active:{peer_id}:resource:{claim}" for claim in
+                        sorted(set(bound["claims"]) & set(cell.get("resource_claims", []))))
+    return blockers
+
+
 def dispatch(scope: dict, args) -> int:
     api = SimpleNamespace(**scope)
     root = Path(args.root).resolve()
@@ -604,6 +625,14 @@ def issues(scope: dict, root: Path, state: dict, dag: dict) -> list[str]:
         for peer_id, peer in active[i + 1:]:
             if conflict(request["binding"], peer["binding"]):
                 errors.append(f"{cell_id}/{peer_id}: simultaneous conflicting exclusive admission")
+    for cell_id, record in state.get("cells", {}).items():
+        if record.get("coordination") or record.get("state") != "DISPATCHED":
+            continue
+        cell = api._find_cell(dag, cell_id)
+        if cell and not isinstance(cell.get("target"), dict):
+            blockers = control_dispatch_blockers(dag, state, cell)
+            if blockers:
+                errors.append(f"{cell_id}: control dispatch bypasses retained target ownership: {blockers}")
     return errors
 
 

@@ -128,7 +128,7 @@ class CoordinationLifecycleTests(unittest.TestCase):
         self.root = self.fixture.root
         self.runtime = self.fixture.runtime
 
-    def compile(self, *, paths=None, claims=None, dependencies=None, extra=True):
+    def compile(self, *, paths=None, claims=None, dependencies=None, extra=True, controls=()):
         frontier = self.fixture.reference_frontier_payload()
         cells = [cell for cell in frontier["cells"] if cell.get("kind") == "MUTATION"]
         if extra:
@@ -144,6 +144,7 @@ class CoordinationLifecycleTests(unittest.TestCase):
             cell["conflict_class"] = "writer:" + cid
             cell["resource_claims"] = (claims or {}).get(cid, [])
             cell["dependencies"] = (dependencies or {}).get(cid, ["G000"])
+        frontier["cells"].extend(copy.deepcopy(controls))
         path = self.root / "coordination-frontier.json"
         lifecycle.write_json(path, frontier)
         self.fixture.mc("compile", "--root", self.root, "--frontier", path)
@@ -247,6 +248,67 @@ class CoordinationLifecycleTests(unittest.TestCase):
         self.transition("release", "M000")
         self.recover()
         self.assertEqual(["ADMITTED", "ADMITTED"], [self.request(cell)["phase"] for cell in ("M001", "M002")])
+
+    @staticmethod
+    def audit(cell, *, dependencies=("G000",), conflict_class=None, claims=()):
+        return {"cell_id": cell, "kind": "AUDIT", "dependencies": list(dependencies),
+                "objective": "Audit mixed-cell admission", "acceptance": ["Independent audit evidence recorded"],
+                "status": "PENDING", "conflict_class": conflict_class or "audit:" + cell,
+                "resource_claims": list(claims), "consumer": "MUTATION_FRONTIER",
+                "result_schema": "contracts/schemas/RESULT_SCHEMA.json"}
+
+    def test_control_dispatch_respects_accepted_targets_until_safe_release(self):
+        controls = [self.audit("A100", claims=["api:shared"]),
+                    self.audit("A101", dependencies=["M000"]),
+                    self.audit("A102", conflict_class="writer:M000"), self.audit("A103")]
+        self.compile(claims={"M000": ["api:shared"]}, controls=controls)
+        self.dispatch("M000")
+        self.launch("M000")
+        self.settle("M000")
+        self.assertEqual("ACCEPTED", self.fixture.state()["cells"]["M000"]["state"])
+        self.fixture.mc("dispatch", "--root", self.root, "--cell", "A103")
+
+        def denied():
+            for cell, reason in (("A100", "resource:api:shared"), ("A101", "dependency_release:M000"),
+                                 ("A102", "conflict_class")):
+                with self.subTest(phase=self.request("M000")["phase"], control=cell):
+                    result = self.fixture.mc("dispatch", "--root", self.root, "--cell", cell, ok=False)
+                    self.assertIn(reason, result.stderr)
+                    self.assertEqual("COMPILED", self.fixture.state()["cells"][cell]["state"])
+        denied()
+        for action in ("running", "unknown", "stop"):
+            self.transition(action, "M000")
+            denied()
+        self.fence("M000")
+        self.assertEqual("STOP_CONFIRMED", self.request("M000")["phase"])
+        denied()
+        self.transition("release", "M000")
+        for cell in ("A100", "A101", "A102"):
+            self.fixture.mc("dispatch", "--root", self.root, "--cell", cell)
+        self.fixture.mc("doctor", "--root", self.root)
+
+    def test_target_queue_respects_dispatched_control_claim_and_doctor_rejects_bypass(self):
+        self.compile(claims={"M000": ["api:shared"]},
+                     controls=[self.audit("A100", claims=["api:shared"]), self.audit("A101", dependencies=["M001"])])
+        self.fixture.mc("dispatch", "--root", self.root, "--cell", "A100")
+        queued = self.dispatch("M000")
+        self.assertEqual("QUEUED", queued["phase"])
+        self.assertIn("active_control_claim:A100", queued["blockers"])
+        self.dispatch("M001")
+        self.launch("M001")
+        self.settle("M001")
+        self.fixture.settle("A100")
+        self.recover()
+        self.assertEqual("ADMITTED", self.request("M000")["phase"])
+        # Model an invalid pre-fix/control-state restoration; doctor must not
+        # certify a dependency that bypassed a still-owned accepted target.
+        state = self.fixture.state()
+        state["cells"]["A101"].update({"state": "DISPATCHED", "worker_identity": "runtime-state-worker",
+                                       "verifier_identity": "runtime-state-verifier"})
+        state["frontier"]["dispatched"] = sorted(set(state["frontier"]["dispatched"]) | {"A101"})
+        lifecycle.write_json(self.root / "control/EXECUTION_STATE.json", state)
+        invalid = self.fixture.mc("doctor", "--root", self.root, ok=False)
+        self.assertIn("control dispatch bypasses retained target ownership", invalid.stdout + invalid.stderr)
 
     def test_out_of_scope_committed_dirty_rename_deletion_and_untracked_are_denied(self):
         self.compile(paths={"M000": ["owned/"], "M001": ["elsewhere/"], "M002": ["other/"]})

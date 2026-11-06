@@ -3505,6 +3505,11 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
         if state["cells"].get(dep, {}).get("state") != "ACCEPTED":
             print(f"dependency {dep} is not ACCEPTED", file=sys.stderr)
             return 1
+    if _coordination_enabled(root):
+        blockers = _coordination().control_dispatch_blockers(dag, state, cell)
+        if blockers:
+            print(f"cell {args.cell} blocked by retained target ownership: {blockers}", file=sys.stderr)
+            return 1
     target = cell.get("target")
     workspace_id = str(args.workspace_id).strip() if args.workspace_id is not None else ""
     if isinstance(target, dict):

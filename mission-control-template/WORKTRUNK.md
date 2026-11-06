@@ -218,6 +218,12 @@ dependencies do not reserve paths. Independent eligible cells use separate
 worktrees concurrently. `coordination status` explains blockers; `coordination
 recover` reassesses eligibility and admits saved requests without launching a
 provider. Repeating a request after a lost reply retains its token and generation.
+Control-only cells keep immediate dispatch and their existing result protocol;
+they cannot bypass a coordinated target's unreleased dependency, resource claim
+or conflict class, including after its result becomes ACCEPTED. Confirming stop
+alone still retains that ownership until explicit release. Independent controls
+can proceed; the target queue also waits for dispatched control claims. Doctor
+rejects mixed dispatch records that bypass these retained target constraints.
 An authority change requires explicit `coordination reassess`, which gives the
 reassessed request a new order and generation. It cannot broaden an active scope.
 
