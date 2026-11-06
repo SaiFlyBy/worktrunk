@@ -155,7 +155,7 @@ class PublishTests(unittest.TestCase):
                     self.remote_branch = self.head
                     self.open_prs = [{"url": "https://github.com/owner/repo/pull/1", "headRefOid": self.head}]
                 forge_read = False
-                original = self.run_command
+                original = type(self).run_command.__get__(self, type(self))
                 def run(argv, **kwargs):
                     nonlocal forge_read
                     result = original(argv, **kwargs)
