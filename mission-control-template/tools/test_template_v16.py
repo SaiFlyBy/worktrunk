@@ -277,10 +277,10 @@ def main() -> int:
         run(str(SOURCE_MC), "init", "--mission", str(prior_root / "MISSION.json"))
         prior_runtime = prior_root / "runtime" / "tools" / "mc.py"
         run(str(prior_runtime), "doctor", "--root", str(prior_root))
-        original_prior_handoff = prior_handoff.read_text(encoding="utf-8")
+        original_prior_handoff = prior_handoff.read_bytes()
         write_json(prior_handoff, {"schema":"flyby/previous-mission-handoff/1","mission_id":"ATTACKER","accepted_claims":["drifted authority"]})
         run_fail(str(prior_runtime), "doctor", "--root", str(prior_root))
-        prior_handoff.write_text(original_prior_handoff, encoding="utf-8")
+        prior_handoff.write_bytes(original_prior_handoff)
         run(str(prior_runtime), "doctor", "--root", str(prior_root))
         dropped_prior_sources = prior_root / "sources-dropped-prior.json"
         prior_sources = json.loads((prior_root / "corpus" / "SOURCES.json").read_text(encoding="utf-8"))
@@ -678,12 +678,12 @@ def main() -> int:
         settle(root, runtime, "M001", "serialized reference mutation accepted")
 
         result_path = root / "evidence" / "M000" / "attempt-0001" / "result.json"
-        original_result = result_path.read_text(encoding="utf-8")
+        original_result = result_path.read_bytes()
         tampered = json.loads(original_result)
         tampered["summary"] = "tampered after settlement"
         write_json(result_path, tampered)
         run_fail(str(runtime), "doctor", "--root", str(root))
-        result_path.write_text(original_result, encoding="utf-8")
+        result_path.write_bytes(original_result)
         run(str(runtime), "doctor", "--root", str(root))
 
         run(str(runtime), "barrier", "accept", "--root", str(root), "--cell", "G100")
@@ -785,12 +785,12 @@ def main() -> int:
         write_json(qualification_path, json.loads(qualification.read_text(encoding="utf-8")))
         run(str(runtime), "qualify", "--root", str(root), "--result", str(qualification))
 
-        original_qualification = qualification_path.read_text(encoding="utf-8")
+        original_qualification = qualification_path.read_bytes()
         tampered_qualification = json.loads(original_qualification)
         tampered_qualification["summary"] = "tampered after acceptance"
         write_json(qualification_path, tampered_qualification)
         run_fail(str(runtime), "doctor", "--root", str(root))
-        qualification_path.write_text(original_qualification, encoding="utf-8")
+        qualification_path.write_bytes(original_qualification)
         run(str(runtime), "doctor", "--root", str(root))
         run_fail(str(runtime), "close", "--root", str(root))
         workspace_input = root / "workspace-reconciliation-input.json"
@@ -878,12 +878,12 @@ def main() -> int:
         run_fail(str(runtime), "workspace", "load", "--root", str(root), "--file", str(escaped_workspace))
         run(str(runtime), "workspace", "load", "--root", str(root), "--file", str(workspace_input))
         workspace_path = root / "handoff" / "WORKSPACE_RECONCILIATION.json"
-        original_workspace = workspace_path.read_text(encoding="utf-8")
+        original_workspace = workspace_path.read_bytes()
         tampered_workspace = json.loads(original_workspace)
         tampered_workspace["target_repositories"][0]["accepted_head_sha"] = "ffffffffffffffffffffffffffffffffffffffff"
         write_json(workspace_path, tampered_workspace)
         run_fail(str(runtime), "doctor", "--root", str(root))
-        workspace_path.write_text(original_workspace, encoding="utf-8")
+        workspace_path.write_bytes(original_workspace)
         run(str(runtime), "doctor", "--root", str(root))
 
         accepted_qualification = json.loads(original_qualification)
@@ -906,12 +906,12 @@ def main() -> int:
         run(str(runtime), "doctor", "--root", str(root))
 
         closure_path = root / "handoff" / "CLOSURE.json"
-        original_closure = closure_path.read_text(encoding="utf-8")
+        original_closure = closure_path.read_bytes()
         tampered_closure = json.loads(original_closure)
         tampered_closure["mission_id"] = "FOREIGN-MISSION"
         write_json(closure_path, tampered_closure)
         run_fail(str(runtime), "doctor", "--root", str(root))
-        closure_path.write_text(original_closure, encoding="utf-8")
+        closure_path.write_bytes(original_closure)
         run(str(runtime), "doctor", "--root", str(root))
         run(str(root / "runtime" / "tests" / "test_mission_control.py"), "--mission-root", str(root))
 
