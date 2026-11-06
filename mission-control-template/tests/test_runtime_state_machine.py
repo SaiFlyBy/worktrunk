@@ -493,7 +493,8 @@ class RuntimeStateMachineSuite(unittest.TestCase):
         self.assertEqual(1, first["attempt"])
         self.assertEqual(1, len(first["attempt_history"]))
         first_result = self.root / first["attempt_history"][0]["result_ref"]
-        original_first = first_result.read_text(encoding="utf-8")
+        # Sealed hashes bind bytes; text restoration rewrites LF to CRLF on Windows.
+        original_first = first_result.read_bytes()
 
         self.mc("retry", "--root", self.root, "--cell", "M000")
         retried = self.state()["cells"]["M000"]
@@ -519,7 +520,7 @@ class RuntimeStateMachineSuite(unittest.TestCase):
         tampered["summary"] = "tampered historical failed attempt"
         write_json(first_result, tampered)
         self.mc("doctor", "--root", self.root, ok=False)
-        first_result.write_text(original_first, encoding="utf-8")
+        first_result.write_bytes(original_first)
         self.mc("doctor", "--root", self.root)
 
     def test_settlement_resumes_after_residency_written_before_state(self) -> None:
@@ -821,13 +822,13 @@ class RuntimeStateMachineSuite(unittest.TestCase):
         accepted = self.state()["cells"]["A000"]
         self.assertEqual("ACCEPTED", accepted["state"])
         adjudication_path = self.root / accepted["adjudication_ref"]
-        original = adjudication_path.read_text(encoding="utf-8")
+        original = adjudication_path.read_bytes()
         tampered = json.loads(original)
         tampered["rationale"] = "tampered verifier rationale"
         write_json(adjudication_path, tampered)
         doctor = self.mc("doctor", "--root", self.root, ok=False)
         self.assertTrue("MC0256" in doctor.stderr or "MC0216" in doctor.stderr)
-        adjudication_path.write_text(original, encoding="utf-8")
+        adjudication_path.write_bytes(original)
         self.mc("doctor", "--root", self.root)
 
     def test_hostile_frontier_identifiers_cannot_escape_mission_root(self) -> None:
@@ -968,29 +969,29 @@ class RuntimeStateMachineSuite(unittest.TestCase):
     def test_doctor_binds_frontier_and_corpus_provenance(self) -> None:
         self.mc("baseline", "compile", "--root", self.root)
         frontier_path = self.root / "frontiers" / "F000" / "FRONTIER.json"
-        original_frontier = frontier_path.read_text(encoding="utf-8")
+        original_frontier = frontier_path.read_bytes()
         frontier = json.loads(original_frontier)
         frontier["cells"][0]["objective"] = "tampered authored objective"
         write_json(frontier_path, frontier)
         self.mc("doctor", "--root", self.root, ok=False)
-        frontier_path.write_text(original_frontier, encoding="utf-8")
+        frontier_path.write_bytes(original_frontier)
         self.mc("doctor", "--root", self.root)
 
         corpus_path = self.root / "corpus" / "TARGET_MUTATIONS.json"
-        original_corpus = corpus_path.read_text(encoding="utf-8")
+        original_corpus = corpus_path.read_bytes()
         corpus = json.loads(original_corpus)
         corpus["mission_id"] = "FOREIGN-MISSION"
         write_json(corpus_path, corpus)
         self.mc("doctor", "--root", self.root, ok=False)
-        corpus_path.write_text(original_corpus, encoding="utf-8")
+        corpus_path.write_bytes(original_corpus)
 
         source_path = self.root / "corpus" / "SOURCES.json"
-        original_sources = source_path.read_text(encoding="utf-8")
+        original_sources = source_path.read_bytes()
         sources = json.loads(original_sources)
         sources["mission_id"] = "FOREIGN-MISSION"
         write_json(source_path, sources)
         self.mc("doctor", "--root", self.root, ok=False)
-        source_path.write_text(original_sources, encoding="utf-8")
+        source_path.write_bytes(original_sources)
         self.mc("doctor", "--root", self.root)
 
     def test_init_rejects_control_target_custody_collision(self) -> None:
