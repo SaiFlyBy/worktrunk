@@ -65,3 +65,14 @@ base, preserve the four protected objects, and satisfy original-base -> reviewed
 base -> candidate ancestry. Publication rechecks lineage and writer custody after
 forge verification. The focused Git, adoption, combined lifecycle and boundary
 regressions are registered in the canonical proof and hosted bridge gate.
+
+## Dependency-aware scope delivery (2026-11-06)
+
+The distinct delivery guard from `8506f4027ce691fb6dacba62ca7102237061e1c8`
+is retained, including its real accepted-mission regression, transitive dependency
+walk, landed-head and merged-PR observations, structural same-scope handoff
+validation, and publication rechecks. It now retains lineage-review evidence and
+the accepted coordination contract's released generation/scope/fence custody.
+An empty initial dependency list is rechecked as well. Other-repository delivery
+remains explicitly unassessed under the original GitHub-specific contract;
+this observation does not grant cross-service completion or replace target CI.
