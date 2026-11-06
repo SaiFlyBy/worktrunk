@@ -147,6 +147,29 @@ class PublishTests(unittest.TestCase):
             self.invoke()
         self.assertFalse(any("push" in call or ("pr" in call and "create" in call) for call in self.calls))
 
+    def test_branch_move_during_final_dependency_lookup_blocks_success_receipts(self):
+        for existing in (False, True):
+            with self.subTest(existing=existing):
+                self.setUp()
+                if existing:
+                    self.remote_branch = self.head
+                    self.open_prs = [{"url": "https://github.com/owner/repo/pull/1", "headRefOid": self.head}]
+                forge_read = False
+                original = type(self).run_command.__get__(self, type(self))
+                def run(argv, **kwargs):
+                    nonlocal forge_read
+                    result = original(argv, **kwargs)
+                    if "pr" in argv and "view" in argv:
+                        forge_read = True
+                    return result
+                def dependencies(*args, **kwargs):
+                    if forge_read:
+                        self.remote_branch = "c" * 40
+                    return [{"cell": "M100", "state": "MERGED_PR"}]
+                self.run_command, self.dependency_error = run, dependencies
+                with self.assertRaisesRegex(bridge.BridgeError, "Published branch changed"):
+                    self.invoke()
+
     def test_changed_dependency_before_upload_blocks_upload(self):
         observation = [{"cell": "M100", "state": "MERGED_PR"}]
         self.dependency_error = [observation, bridge.BridgeError("dependency changed")]
@@ -1102,6 +1125,12 @@ class ScopedDependencyDeliveryTests(unittest.TestCase):
         self.assertEqual(self.record["lineage_review_sha256"], observation["evidence"]["lineage_review"]["sha256"])
         path.write_text("{}", encoding="utf-8")
         with self.assertRaisesRegex(bridge.BridgeError, "lineage_review"):
+            self.check(self.parent, self.child)
+
+    def test_capable_dependency_cannot_fall_back_to_legacy_when_custody_is_missing(self):
+        (self.root / "TEMPLATE_LOCK.json").write_text(json.dumps({"assets": {
+            "contracts/capabilities/cell-coordination-v1.json": "a" * 64}}), encoding="utf-8")
+        with self.assertRaisesRegex(bridge.BridgeError, "missing required coordinated writer custody"):
             self.check(self.parent, self.child)
 
     def test_accepted_dependency_requires_released_hashed_writer_custody(self):
