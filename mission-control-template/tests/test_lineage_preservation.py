@@ -378,26 +378,30 @@ raise SystemExit(mc.main(["init", "--mission", sys.argv[2], "--lineage-preservat
         import sys
         example = ROOT / "examples" / "reference-mission" / "MISSION.json"
         with tempfile.TemporaryDirectory(prefix="mc-lineage-adoption-") as temp:
-            for enabled in (False, True):
-                root = Path(temp) / ("enabled" if enabled else "legacy")
+            for enabled, coordinated in ((False, False), (True, False), (False, True), (True, True)):
+                root = Path(temp) / f"lineage-{enabled}-coordination-{coordinated}"
                 root.mkdir()
                 (root / "MISSION.json").write_bytes(example.read_bytes())
                 argv = [sys.executable, str(ROOT / "tools" / "mc.py"),
                         "init", "--mission", str(root / "MISSION.json")]
                 if enabled:
                     argv.append("--lineage-preservation")
+                if coordinated:
+                    argv.append("--cell-coordination")
                 proc = subprocess.run(argv, capture_output=True, text=True)
                 self.assertEqual(0, proc.returncode, proc.stderr)
                 state = json.loads((root / "control" / "EXECUTION_STATE.json").read_text(encoding="utf-8"))
                 lock = json.loads((root / "TEMPLATE_LOCK.json").read_text(encoding="utf-8"))
                 corpus = json.loads((root / "corpus" / "TARGET_MUTATIONS.json").read_text(encoding="utf-8"))
                 if enabled:
-                    self.assertEqual("flyby/mission-control-execution-state/18", state["schema"])
+                    self.assertEqual("flyby/mission-control-execution-state/20" if coordinated else
+                                     "flyby/mission-control-execution-state/18", state["schema"])
                     self.assertEqual("BOOTSTRAPPED_LINEAGE_V1", state["lifecycle"])
                     self.assertEqual("flyby/mission-control-target-corpus/17", corpus["schema"])
                     self.assertIn("contracts/capabilities/lineage-preservation-v1.json", lock["assets"])
                 else:
-                    self.assertEqual("flyby/mission-control-execution-state/16", state["schema"])
+                    self.assertEqual("flyby/mission-control-execution-state/19" if coordinated else
+                                     "flyby/mission-control-execution-state/16", state["schema"])
                     self.assertEqual("flyby/mission-control-target-corpus/16", corpus["schema"])
                     self.assertNotIn("contracts/capabilities/lineage-preservation-v1.json", lock["assets"])
                     state_path = root / "control" / "EXECUTION_STATE.json"
@@ -410,6 +414,17 @@ raise SystemExit(mc.main(["init", "--mission", sys.argv[2], "--lineage-preservat
                     self.assertNotEqual(0, ignored.returncode)
                     self.assertIn("lineage qualification options require", ignored.stderr)
                     self.assertEqual(before, state_path.read_bytes())
+                if enabled and coordinated:
+                    composition_ref = "contracts/capabilities/lineage-coordination-v1.json"
+                    self.assertIn(composition_ref, lock["assets"])
+                    composition = json.loads((root / composition_ref).read_text(encoding="utf-8"))
+                    schema_path = root / composition["execution_state_schema_ref"]
+                    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+                    self.assertEqual(state["schema"], composition["execution_state_schema"])
+                    self.assertEqual(state["schema"], schema["$id"])
+                    sys.path.insert(0, str(ROOT / "tools"))
+                    from schema_subset import validate
+                    self.assertEqual([], validate(state, schema, schema, schema_path=schema_path))
 
 
 if __name__ == "__main__":

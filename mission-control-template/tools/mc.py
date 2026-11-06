@@ -1167,6 +1167,19 @@ def _collect_v16_issues(root: Path) -> list[dict[str, str]]:
                             "runtime/tools/lineage_preservation.py")):
         out.append(issue("MC0400", "lineage capability assets are not fully sealed",
                          "the opt-in capability is incomplete", "restore its exact locked assets"))
+    if has_coordination and has_lineage:
+        composition_ref = "contracts/capabilities/lineage-coordination-v1.json"
+        try:
+            composition = load_json(root / composition_ref)
+            expected = {"schema": "flyby/mission-control-capability-composition/1",
+                        "capabilities": ["cell-coordination/v1", "lineage-preservation/v1"],
+                        "execution_state_schema": COMBINED_STATE_SCHEMA,
+                        "execution_state_schema_ref": "contracts/schemas/EXECUTION_STATE_SCHEMA_V20.json"}
+            if composition_ref not in lock.get("assets", {}) or composition != expected:
+                raise ValueError("combined capability contract differs from its effective state schema")
+        except (OSError, ValueError) as exc:
+            out.append(issue("MC0400", str(exc), "the capability composition is incomplete",
+                             "restore the exact locked composition and state schema"))
     state_schema_ref = _state_schema_ref(has_coordination, has_lineage)
     state_errors = schema_errors(root, state_schema_ref, state)
     for error in state_errors:
@@ -2531,6 +2544,9 @@ def _template_asset_pairs(template_root: Path, root: Path, *, coordination: bool
             (template_root / "capabilities/lineage-preservation-v1.json", root / LINEAGE_CAPABILITY_REF),
             (template_root / "tools/lineage_preservation.py", root / "runtime/tools/lineage_preservation.py"),
         ))
+    if coordination and lineage:
+        pairs.append((template_root / "capabilities/lineage-coordination-v1.json",
+                      root / "contracts/capabilities/lineage-coordination-v1.json"))
     pairs.extend((
         (template_root / "tools" / "mc.py", root / "runtime" / "tools" / "mc.py"),
         (template_root / "tools" / "wt_mission.py", root / "runtime" / "tools" / "wt_mission.py"),
@@ -3720,8 +3736,6 @@ def _lineage_review_errors(root: Path, state: dict[str, Any], cell_id: str,
     contract = corpus.get("provenance_materialization", {}).get("preservation", {})
     repository = contract.get("repository") if isinstance(contract, dict) else None
     scope_base = record.get("coordination", {}).get("binding", {}).get("scope_base")
-    if scope_base is not None and publication_base != scope_base:
-        return ["lineage review publication base differs from the admitted scope base"]
     outcomes = [item for item in result.get("target_outcomes", [])
                 if isinstance(item, dict) and item.get("repository") == repository]
     if len(outcomes) != 1 or not isinstance(outcomes[0].get("head_sha"), str):
@@ -3734,6 +3748,12 @@ def _lineage_review_errors(root: Path, state: dict[str, Any], cell_id: str,
     entry = matching[0] if len(matching) == 1 else None
     if not isinstance(entry, dict):
         return ["lineage review requires one unambiguous registered physical target workspace"]
+    if scope_base is not None and check_git:
+        from lineage_preservation import _git, LineageProofError
+        try:
+            _git(Path(entry["worktree_path"]), "merge-base", "--is-ancestor", scope_base, publication_base)
+        except LineageProofError:
+            return ["lineage reviewed publication base must include the admitted scope base"]
     errors.extend(verify_preservation_review(
         root, Path(entry["worktree_path"]), corpus, sources, synthesis, state,
         cell_id, record, outcomes[0]["head_sha"], publication_base, review, check_git=check_git,

@@ -244,7 +244,10 @@ the target's own exact-head CI and merge requirements independently.
 Use one controller/initializer for a mission. Add `--cell-coordination` alongside
 `--lineage-preservation` to seal both contracts with execution-state v20. The
 combined mission retains candidate-bound lineage reviews, generation fencing,
-path ownership and explicit safe release. Either opt-in alone retains its own
+path ownership and explicit safe release. Its sealed
+`lineage-coordination-v1.json` composition contract declares the effective v20
+state schema for consumers; the component markers describe their standalone
+schemas. Either opt-in alone retains its own
 versioned schema; existing frozen missions keep their original assets. Capable
 missions use the mission-local lock across temporary-directory settings. This
 capability does not provide an OS sandbox or authenticate an external provider.

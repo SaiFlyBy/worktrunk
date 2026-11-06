@@ -194,8 +194,18 @@ class MissionLifecycleSuite(unittest.TestCase):
         fixture.compile_reference()
         fixture.mc("dispatch", "--root", fixture.root, "--cell", "M000")
         worktree = fixture.target_worktree("M000")
+        source_publication_base = fixture.target_base_sha
+        if coordination:
+            inherited = fixture.target_repo / "reference-only/main-owned.py"
+            inherited.parent.mkdir(parents=True)
+            inherited.write_text("accepted main owned change\n", encoding="utf-8")
+            fixture.git("add", "reference-only/main-owned.py")
+            fixture.git("commit", "-m", "main advances before independent settlement")
+            source_publication_base = fixture.git("rev-parse", "HEAD").stdout.strip()
+            subprocess.run(["git", "-C", str(worktree), "merge", "--no-edit", source_publication_base],
+                           check=True, capture_output=True, text=True)
         changed = worktree / "reference-only" / "implementation.py"
-        changed.parent.mkdir(parents=True)
+        changed.parent.mkdir(parents=True, exist_ok=True)
         changed.write_text("owned change\n", encoding="utf-8")
         subprocess.run(["git", "-C", str(worktree), "add", "reference-only/implementation.py"], check=True)
         subprocess.run(["git", "-C", str(worktree), "commit", "-m", "fixture candidate"],
@@ -227,6 +237,8 @@ class MissionLifecycleSuite(unittest.TestCase):
                           "sha256": hashlib.sha256(evidence.read_bytes()).hexdigest()}],
         }
         review_path = fixture.root / "candidate-lineage-review.json"
+        if coordination:
+            review["publication_base_sha"] = source_publication_base
         write_json(review_path, review)
         settle = ("settle", "--root", fixture.root, "--cell", "M000", "--attempt", "1",
                   "--result", result, "--context-receipt", receipt, "--adjudication", adjudication)
@@ -266,7 +278,7 @@ class MissionLifecycleSuite(unittest.TestCase):
             release("M000")
         fixture.mc("doctor", "--root", fixture.root)
         fixture.mc("lineage", "verify", "--root", fixture.root, "--cell", "M000",
-                   "--candidate", candidate, "--publication-base", fixture.target_base_sha)
+                   "--candidate", candidate, "--publication-base", source_publication_base)
 
         import argparse
         import importlib.util
@@ -305,7 +317,7 @@ class MissionLifecycleSuite(unittest.TestCase):
             self.assertEqual([], forge_calls)
 
         with mock.patch.object(bridge, "run", side_effect=routed_run), \
-             mock.patch.object(bridge, "remote_head", side_effect=remote_for(fixture.target_base_sha)), \
+             mock.patch.object(bridge, "remote_head", side_effect=remote_for(source_publication_base)), \
              mock.patch.object(bridge, "push_to_verified_destination", side_effect=RuntimeError("fake upload boundary")) as push:
             with self.assertRaisesRegex(RuntimeError, "fake upload boundary"):
                 bridge.publish(args)
@@ -316,6 +328,7 @@ class MissionLifecycleSuite(unittest.TestCase):
         receipt2 = fixture.receipt("M001")
         adjudication2 = fixture.adjudication("M001", result2, receipt2, attempt=1)
         review2 = {**review, "cell_id": "M001", "candidate_sha": fixture.target_base_sha}
+        review2.pop("publication_base_sha", None)
         review2_path = fixture.root / "candidate-lineage-review-m001.json"
         write_json(review2_path, review2)
         fixture.mc("settle", "--root", fixture.root, "--cell", "M001", "--attempt", "1",

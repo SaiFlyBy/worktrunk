@@ -1,0 +1,6 @@
+{
+  "schema": "flyby/mission-control-capability-composition/1",
+  "capabilities": ["cell-coordination/v1", "lineage-preservation/v1"],
+  "execution_state_schema": "flyby/mission-control-execution-state/20",
+  "execution_state_schema_ref": "contracts/schemas/EXECUTION_STATE_SCHEMA_V20.json"
+}
