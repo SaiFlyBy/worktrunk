@@ -136,12 +136,18 @@ class ProofRunnerContractSuite(unittest.TestCase):
         self.assertIn("WORKTRUNK_MC_TEST_HANDOFF", workflow)
         self.assertIn("ubuntu-24.04", workflow)
         self.assertIn("windows-2025", workflow)
-        self.assertNotIn("self-hosted", workflow)
+        self.assertIn("runs-on: [self-hosted, Linux, X64, worktrunk-docker]", workflow)
+        self.assertIn("ref: refs/heads/flyby/cell-enforcement-pro-20261105", workflow)
         self.assertNotIn("secrets.", workflow)
         actions = re.findall(r"^\s*uses:\s*([^\s#]+)", workflow, flags=re.MULTILINE)
         self.assertTrue(actions)
         for action in actions:
-            self.assertRegex(action, r"@[0-9a-f]{40}$", action)
+            if action == "./.github/actions/self-hosted-setup":
+                setup = (REPO / ".github/actions/self-hosted-setup/action.yaml").read_text(encoding="utf-8")
+                for nested in re.findall(r"^\s*uses:\s*([^\s#]+)", setup, flags=re.MULTILINE):
+                    self.assertRegex(nested, r"@[0-9a-f]{40}$", nested)
+            else:
+                self.assertRegex(action, r"@[0-9a-f]{40}$", action)
 
 
 if __name__ == "__main__":

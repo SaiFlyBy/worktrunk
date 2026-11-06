@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-fence-observation/1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "kind",
+    "cell",
+    "attempt",
+    "generation",
+    "token",
+    "executor_identity",
+    "observer_identity",
+    "termination_confirmed",
+    "descendants_fenced",
+    "rationale",
+    "evidence"
+  ],
+  "properties": {
+    "schema": {
+      "const": "flyby/mission-control-fence-observation/1"
+    },
+    "kind": {
+      "const": "INDEPENDENT_OPERATOR_CONFIRMATION"
+    },
+    "cell": {
+      "type": "string",
+      "minLength": 1
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "token": {
+      "type": "string",
+      "minLength": 1
+    },
+    "executor_identity": {
+      "type": "string",
+      "minLength": 1
+    },
+    "observer_identity": {
+      "type": "string",
+      "minLength": 1
+    },
+    "termination_confirmed": {
+      "const": true
+    },
+    "descendants_fenced": {
+      "const": true
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ref",
+          "sha256"
+        ],
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    }
+  }
+}

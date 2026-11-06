@@ -20,7 +20,8 @@
     "tests/test_performance_characterization.py",
     "tests/test_mission_control.py",
     "tools/test_template_v16.py",
-    "tests/test_wt_mission.py"
+    "tests/test_wt_mission.py",
+    "tests/test_cell_coordination.py"
   ],
   "retirements": []
 }

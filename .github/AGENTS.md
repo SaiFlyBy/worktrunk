@@ -13,3 +13,13 @@ Code coverage is Rust-only; do not infer Python integration coverage from it. Th
 ## Build environment
 
 Swatinem/rust-cache hashes the CARGO* and RUST* variables visible at the cache step. Workflows sharing a cache must set the same variables before that step. A mismatch restores nothing without failing the job. Keep the existing tests and checks unless an evidence-based change justifies adjusting them.
+
+
+The manual `cell-candidate` gate is the bounded exception for this owner-admitted
+cell-coordination implementation. It uses only the already-qualified repository
+runner `[self-hosted, Linux, X64, worktrunk-docker]`, requires the owner as both
+actor and triggering actor, checks out the fixed implementation branch and
+refuses a SHA mismatch before executing candidate code. Live Actions policy
+10761 must remain active for all workflows, allowing only user 226779263. Normal
+PR/CI routing is unchanged. This gate has contents-read credentials only and
+does not permit arbitrary repositories, refs, commands or fork candidates.

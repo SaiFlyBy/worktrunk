@@ -82,7 +82,8 @@ class PublishTests(unittest.TestCase):
         return self.remote_branch
 
     def invoke(self):
-        with patch.object(bridge, "scope_report", return_value=self.report), \
+        with patch.object(bridge, "read_json", return_value={"assets": {}}), \
+             patch.object(bridge, "scope_report", return_value=self.report), \
              patch.object(bridge, "ledger_entry", return_value={
                  "branch": "scope/one", "remote_url": "https://github.com/owner/repo.git",
                  "repository": "owner/repo", "base_sha": self.base}), \
@@ -429,6 +430,7 @@ class RealGitPublishTests(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory(prefix="wt-mission-parallel-") as tmp:
             root = Path(tmp)
+            (root / "TEMPLATE_LOCK.json").write_text(json.dumps({"assets": {}}), encoding="utf-8")
             bare, repo = root / "remote.git", root / "repo"
             env = bridge.child_environment(os.environ)
             for key in list(env):
@@ -477,6 +479,7 @@ class RealGitPublishTests(unittest.TestCase):
     def test_publish_pushes_the_accepted_commit_to_a_real_git_remote(self):
         with tempfile.TemporaryDirectory(prefix="wt-mission-git-") as tmp:
             root = Path(tmp)
+            (root / "TEMPLATE_LOCK.json").write_text(json.dumps({"assets": {}}), encoding="utf-8")
             bare, repo = root / "remote.git", root / "repo"
             test_env = bridge.child_environment(os.environ)
             for key in list(test_env):
@@ -557,6 +560,7 @@ class RealGitPublishTests(unittest.TestCase):
     def test_concurrent_ancestor_branch_is_never_overwritten(self):
         with tempfile.TemporaryDirectory(prefix="wt-mission-push-race-") as tmp:
             root = Path(tmp)
+            (root / "TEMPLATE_LOCK.json").write_text(json.dumps({"assets": {}}), encoding="utf-8")
             bare, repo = root / "remote.git", root / "repo"
             env = bridge.child_environment(os.environ)
             for key in list(env):
@@ -618,6 +622,7 @@ class RealGitPublishTests(unittest.TestCase):
     def test_destination_is_bound_across_pushurl_change_and_second_rewrite(self):
         with tempfile.TemporaryDirectory(prefix="wt-mission-destination-race-") as tmp:
             root = Path(tmp)
+            (root / "TEMPLATE_LOCK.json").write_text(json.dumps({"assets": {}}), encoding="utf-8")
             good, bad, repo = root / "good.git", root / "bad.git", root / "repo"
             good_url, bad_url = good.as_posix(), bad.as_posix()
             env = bridge.child_environment(os.environ)
@@ -758,6 +763,7 @@ class HandoffTests(unittest.TestCase):
         root = Path(self.tmp.name)
         self.mission, self.repo, self.source = root / "mission", root / "repo", root / "source"
         self.mission.mkdir()
+        (self.mission / "TEMPLATE_LOCK.json").write_text(json.dumps({"assets": {}}), encoding="utf-8")
         self.env = bridge.child_environment(os.environ)
         for key in list(self.env):
             if key in {"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"} or key.startswith("GIT_CONFIG_KEY_") or key.startswith("GIT_CONFIG_VALUE_"):
