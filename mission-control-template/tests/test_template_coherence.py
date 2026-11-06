@@ -93,8 +93,11 @@ class TemplateCoherenceSuite(unittest.TestCase):
     def test_04_operator_cli_surface_matches_documented_lifecycle(self) -> None:
         parser = mc.build_parser()
         action = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
-        expected = {"init", "doctor", "status", "sources", "provenance", "corpus", "workspace", "baseline", "barrier", "retry", "compile", "dispatch", "settle", "integrate", "qualify", "close", "test", "repair", "coordination"}
+        expected = {"init", "doctor", "status", "sources", "provenance", "corpus", "workspace", "baseline", "barrier", "retry", "compile", "dispatch", "settle", "integrate", "qualify", "close", "test", "repair", "coordination", "lineage"}
         self.assertEqual(expected, set(action.choices))
+        lineage_parser = action.choices["lineage"]
+        lineage_action = next(a for a in lineage_parser._actions if isinstance(a, argparse._SubParsersAction))
+        self.assertEqual({"verify"}, set(lineage_action.choices))
         for command in ("sources", "provenance", "corpus"):
             command_parser = action.choices[command]
             command_action = next(a for a in command_parser._actions if isinstance(a, argparse._SubParsersAction))

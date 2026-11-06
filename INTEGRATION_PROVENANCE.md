@@ -49,3 +49,19 @@ The implementation adds only its fixed-branch, exact-SHA manual qualification
 gate and the gate's qualified preparation action. It does not import the separate
 proposal to reroute general Rust CI. The prototype routing worktree remains
 separate; only the capability-specific gate belongs to this mechanism.
+
+## Lineage completion (2026-11-06)
+
+The earlier PR #7 deferral is superseded by serial integration of its complete
+`d707c4dff4132d98f086689c1b2dad168d7e7ea5` mechanism onto accepted PR #9 main
+`90ab422f5db26626ac31130bdf2cac6282509ba2`. Standalone lineage v18 and coordination
+v19 remain distinct frozen contracts; new missions opting into both seal their
+strict union as execution-state v20. The settlement, handoff and report retain
+the lineage review's immutable reference and digest alongside existing evidence.
+
+A renewed candidate review can name a descendant `publication_base_sha` without
+altering the original corpus/profile pin. It must independently cover the changed
+base, preserve the four protected objects, and satisfy original-base -> reviewed
+base -> candidate ancestry. Publication rechecks lineage and writer custody after
+forge verification. The focused Git, adoption, combined lifecycle and boundary
+regressions are registered in the canonical proof and hosted bridge gate.

@@ -87,6 +87,8 @@ jobs:
               ['tests/test_cell_coordination.py'],
               ['tests/test_evidence_based_source_qualification.py'],
               ['tests/test_wt_mission.py'],
+              ['tests/test_lineage_preservation.py'],
+              ['tests/test_lineage_lifecycle.py'],
           ]
           for command in commands:
               subprocess.run([sys.executable, str(template / command[0]), *command[1:]],

@@ -1,0 +1,797 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flyby/mission-control-execution-state/20",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "mission_id",
+    "lifecycle",
+    "topology_ref",
+    "cells",
+    "frontier",
+    "coordination",
+    "mission_instance_id",
+    "mission_root"
+  ],
+  "properties": {
+    "schema": {
+      "const": "flyby/mission-control-execution-state/20"
+    },
+    "mission_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lifecycle": {
+      "enum": [
+        "BOOTSTRAPPED",
+        "BASELINE_READY",
+        "BASELINE_ACCEPTED",
+        "MUTATION_READY",
+        "INTEGRATING",
+        "QUALIFYING",
+        "ACCEPTED",
+        "CLOSED",
+        "BOOTSTRAPPED_LINEAGE_V1"
+      ]
+    },
+    "topology_ref": {
+      "const": "control/EXECUTION_DAG.json"
+    },
+    "qualification_ref": {
+      "type": "string"
+    },
+    "qualification_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "closure_ref": {
+      "type": "string"
+    },
+    "closure_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "cells": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "state": {
+            "enum": [
+              "PENDING",
+              "COMPILED",
+              "DISPATCHED",
+              "CANDIDATE",
+              "ACCEPTED",
+              "REJECTED",
+              "BLOCKED",
+              "FAILED",
+              "STALE",
+              "SUPERSEDED",
+              "CANCELLED"
+            ]
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "worker_identity": {
+            "type": "string",
+            "minLength": 1
+          },
+          "verifier_identity": {
+            "type": "string",
+            "minLength": 1
+          },
+          "attempt_history": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "attempt",
+                "worker_identity",
+                "verifier_identity",
+                "state",
+                "result_ref",
+                "result_sha256",
+                "context_receipt_ref",
+                "context_receipt_sha256",
+                "adjudication_ref",
+                "adjudication_sha256"
+              ],
+              "properties": {
+                "attempt": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "worker_identity": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "verifier_identity": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "state": {
+                  "enum": [
+                    "CANDIDATE",
+                    "ACCEPTED",
+                    "REJECTED",
+                    "BLOCKED",
+                    "FAILED"
+                  ]
+                },
+                "result_ref": {
+                  "type": "string"
+                },
+                "result_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "context_receipt_ref": {
+                  "type": "string"
+                },
+                "context_receipt_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "adjudication_ref": {
+                  "type": "string"
+                },
+                "adjudication_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "lineage_review_ref": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "lineage_review_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            }
+          },
+          "workcell_ref": {
+            "type": "string"
+          },
+          "result_ref": {
+            "type": "string"
+          },
+          "result_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "context_receipt_ref": {
+            "type": "string"
+          },
+          "context_receipt_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "adjudication_ref": {
+            "type": "string"
+          },
+          "adjudication_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "workspace_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._/-]+$"
+          },
+          "coordination": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "request_id",
+              "order",
+              "generation",
+              "token",
+              "binding",
+              "binding_digest",
+              "phase",
+              "blockers",
+              "executor_identity",
+              "stop_observation_ref",
+              "stop_observation_sha256",
+              "scope_proof_ref",
+              "scope_proof_sha256"
+            ],
+            "properties": {
+              "request_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "order": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "generation": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "token": {
+                "type": "string",
+                "minLength": 1
+              },
+              "binding": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "instance_id",
+                  "authority_root",
+                  "cell",
+                  "workspace_id",
+                  "worker_identity",
+                  "verifier_identity",
+                  "workcell_ref",
+                  "repository_key",
+                  "conflict_class",
+                  "attempt",
+                  "workcell_sha256",
+                  "target",
+                  "workspace",
+                  "scope_base",
+                  "inherited_head",
+                  "scopes",
+                  "dependencies",
+                  "claims"
+                ],
+                "properties": {
+                  "instance_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "authority_root": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "cell": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "worker_identity": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "verifier_identity": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "workcell_ref": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "repository_key": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "conflict_class": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "attempt": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "workcell_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "target": {
+                    "$ref": "CELL_SCHEMA.json#/properties/target"
+                  },
+                  "workspace": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "workspace_path",
+                      "git_common_dir",
+                      "branch",
+                      "origin",
+                      "base_sha",
+                      "case_insensitive"
+                    ],
+                    "properties": {
+                      "workspace_path": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "git_common_dir": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "branch": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "origin": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "base_sha": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{40}$"
+                      },
+                      "case_insensitive": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "scope_base": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{40}$"
+                  },
+                  "inherited_head": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[0-9a-f]{40}$"
+                  },
+                  "scopes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "path",
+                        "resolved",
+                        "directory"
+                      ],
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "resolved": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "directory": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  },
+                  "dependencies": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "claims": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              },
+              "binding_digest": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "phase": {
+                "enum": [
+                  "QUEUED",
+                  "ADMITTED",
+                  "LAUNCH_UNCERTAIN",
+                  "RUNNING",
+                  "STOP_REQUESTED",
+                  "UNKNOWN",
+                  "STOP_CONFIRMED",
+                  "RELEASED"
+                ]
+              },
+              "blockers": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "executor_identity": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "stop_observation_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "stop_observation_sha256": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "scope_proof_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "scope_proof_sha256": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          "lineage_review_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "lineage_review_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "frontier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "compiled",
+        "dispatched",
+        "accepted"
+      ],
+      "properties": {
+        "compiled": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "dispatched": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "accepted": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "coordination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "instance_id",
+        "authority_root",
+        "next_order",
+        "history"
+      ],
+      "properties": {
+        "schema": {
+          "const": "flyby/mission-control-coordination/1"
+        },
+        "instance_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "authority_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "next_order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "request_id",
+              "order",
+              "generation",
+              "token",
+              "binding",
+              "binding_digest",
+              "phase",
+              "blockers",
+              "executor_identity",
+              "stop_observation_ref",
+              "stop_observation_sha256",
+              "scope_proof_ref",
+              "scope_proof_sha256"
+            ],
+            "properties": {
+              "request_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "order": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "generation": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "token": {
+                "type": "string",
+                "minLength": 1
+              },
+              "binding": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "instance_id",
+                  "authority_root",
+                  "cell",
+                  "workspace_id",
+                  "worker_identity",
+                  "verifier_identity",
+                  "workcell_ref",
+                  "repository_key",
+                  "conflict_class",
+                  "attempt",
+                  "workcell_sha256",
+                  "target",
+                  "workspace",
+                  "scope_base",
+                  "inherited_head",
+                  "scopes",
+                  "dependencies",
+                  "claims"
+                ],
+                "properties": {
+                  "instance_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "authority_root": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "cell": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "worker_identity": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "verifier_identity": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "workcell_ref": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "repository_key": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "conflict_class": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "attempt": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "workcell_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "target": {
+                    "$ref": "CELL_SCHEMA.json#/properties/target"
+                  },
+                  "workspace": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "workspace_path",
+                      "git_common_dir",
+                      "branch",
+                      "origin",
+                      "base_sha",
+                      "case_insensitive"
+                    ],
+                    "properties": {
+                      "workspace_path": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "git_common_dir": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "branch": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "origin": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "base_sha": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{40}$"
+                      },
+                      "case_insensitive": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "scope_base": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{40}$"
+                  },
+                  "inherited_head": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[0-9a-f]{40}$"
+                  },
+                  "scopes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "path",
+                        "resolved",
+                        "directory"
+                      ],
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "resolved": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "directory": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  },
+                  "dependencies": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "claims": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              },
+              "binding_digest": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "phase": {
+                "enum": [
+                  "QUEUED",
+                  "ADMITTED",
+                  "LAUNCH_UNCERTAIN",
+                  "RUNNING",
+                  "STOP_REQUESTED",
+                  "UNKNOWN",
+                  "STOP_CONFIRMED",
+                  "RELEASED"
+                ]
+              },
+              "blockers": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "executor_identity": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "stop_observation_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "stop_observation_sha256": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "scope_proof_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "scope_proof_sha256": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "mission_instance_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f-]{36}$"
+    },
+    "mission_root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lineage_final_review_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lineage_final_review_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "lineage_final_review_cell": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

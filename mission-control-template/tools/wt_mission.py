@@ -99,6 +99,7 @@ cell = sys.argv[2]
 attempt = int(sys.argv[3])
 inputs = [Path(value) for value in sys.argv[4:7]]
 generation, token = sys.argv[7:9]
+lineage_input = sys.argv[9] if len(sys.argv) > 9 else ""
 runtime = root / "runtime" / "tools" / "mc.py"
 sys.path.insert(0, str(runtime.parent))
 spec = importlib.util.spec_from_file_location("_frozen_mission_runtime", runtime)
@@ -145,6 +146,16 @@ with mc.mission_control_lock(root):
         if (mc.sha256(recorded) != digest
                 or canonical(mc.load_json(recorded)) != canonical(mc.load_json(supplied))):
             raise RuntimeError("Settlement evidence is different or has changed")
+    if lineage_input or record.get("lineage_review_ref"):
+        if not lineage_input or not callable(getattr(mc, "load_lineage_review", None)):
+            raise RuntimeError("Settlement requires its exact lineage review and capable frozen runtime")
+        ref, digest = record.get("lineage_review_ref"), record.get("lineage_review_sha256")
+        if not ref or not digest or item.get("lineage_review_ref") != ref or item.get("lineage_review_sha256") != digest:
+            raise RuntimeError("Settlement lineage review differs from attempt history")
+        recorded = mc.resolve_ref(root, ref)
+        if (mc.sha256(recorded) != digest
+                or canonical(mc.load_lineage_review(recorded)) != canonical(mc.load_lineage_review(Path(lineage_input)))):
+            raise RuntimeError("Settlement lineage review is different or has changed")
     print(json.dumps({
         "state": record["state"], "cell": cell, "attempt": attempt,
         "result_ref": record["result_ref"],
@@ -177,10 +188,17 @@ def settle_reconciled(args: argparse.Namespace) -> dict:
             path.write_text(json.dumps(value, sort_keys=True), encoding="utf-8")
         fence = (["--generation", str(args.generation), "--token", args.token]
                  if args.generation is not None and args.token is not None else [])
+        lineage_path = None
+        if getattr(args, "lineage_review", None):
+            lineage_path = Path(temp) / "lineage-review.json"
+            # Keep the submitted review bytes stable; the frozen runtime owns
+            # strict parsing and the candidate/source binding checks.
+            lineage_path.write_bytes(Path(args.lineage_review).resolve().read_bytes())
+        lineage = ["--lineage-review", str(lineage_path)] if lineage_path else []
         proc = run([sys.executable, str(runtime), "settle", "--root", str(root),
                     "--cell", args.cell, "--attempt", str(args.attempt),
                     "--result", str(paths[0]), "--context-receipt", str(paths[1]),
-                    "--adjudication", str(paths[2]), *fence])
+                    "--adjudication", str(paths[2]), *fence, *lineage])
         if proc.returncode == 0:
             try:
                 result = json.loads(proc.stdout)
@@ -193,7 +211,8 @@ def settle_reconciled(args: argparse.Namespace) -> dict:
             result["reconciled"] = False
             return result
         snapshot = run([sys.executable, "-I", "-c", _SETTLEMENT_SNAPSHOT,
-                        str(root), args.cell, str(args.attempt), *map(str, paths), str(args.generation or ""), str(args.token or "")])
+                        str(root), args.cell, str(args.attempt), *map(str, paths), str(args.generation or ""), str(args.token or ""),
+                        str(lineage_path or "")])
         if snapshot.returncode:
             detail = (proc.stderr or proc.stdout).strip()
             check = (snapshot.stderr or snapshot.stdout).strip()
@@ -349,7 +368,7 @@ def scope_report(root: Path, cell_id: str) -> dict:
         "note": "Read-only projection of Mission Control records; not an additional decision or proof of unrecorded checks.",
     }
     for key in ("result_ref", "result_sha256", "context_receipt_ref", "context_receipt_sha256",
-                "adjudication_ref", "adjudication_sha256"):
+                "adjudication_ref", "adjudication_sha256", "lineage_review_ref", "lineage_review_sha256"):
         if record.get(key):
             report[key] = record[key]
     if record.get("result_ref"):
@@ -489,7 +508,8 @@ def handoff(args: argparse.Namespace) -> None:
     merge_base = git(repo, "merge-base", source, observed).lower()
     changes = changed_paths(repo, merge_base, observed)
     evidence = {}
-    for kind in ("result", "context_receipt", "adjudication"):
+    for kind in ("result", "context_receipt", "adjudication", *(
+            ["lineage_review"] if record.get("lineage_review_ref") else [])):
         ref, digest = record.get(kind + "_ref"), record.get(kind + "_sha256")
         if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise BridgeError(f"Accepted {kind} hash is missing or invalid")
@@ -664,6 +684,21 @@ def verify_coordination_for_publication(root: Path, cell: str, candidate: str, b
         mc(root, "coordination", "verify", "--cell", cell, "--candidate", candidate, "--publication-base", base)
 
 
+def verify_lineage_for_publication(root: Path, cell_id: str, repository: str,
+                                   candidate: str, publication_base: str, base_ref: str) -> None:
+    corpus = read_json(root / "corpus" / "TARGET_MUTATIONS.json")
+    materialization = corpus.get("provenance_materialization", {})
+    if not isinstance(materialization, dict) or materialization.get("mode") != "SAME_REPOSITORY_NO_NEW_HARVEST":
+        return
+    if base_ref != "refs/heads/main":
+        raise BridgeError("Lineage preservation profile requires the accepted main branch")
+    preservation = materialization.get("preservation", {})
+    if not isinstance(preservation, dict) or preservation.get("repository") != repository:
+        raise BridgeError("Lineage preservation contract does not bind this target repository")
+    mc(root, "lineage", "verify", "--cell", cell_id, "--candidate", candidate,
+       "--publication-base", publication_base)
+
+
 def publish(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
     report = scope_report(root, args.cell)
@@ -704,6 +739,7 @@ def publish(args: argparse.Namespace) -> None:
     if ancestry.returncode:
         raise BridgeError("Cannot verify the current remote base is contained in the accepted head; fetch and reassess the candidate and its evidence")
     verify_coordination_for_publication(root, args.cell, candidate, observed_base)
+    verify_lineage_for_publication(root, args.cell, repository, candidate, observed_base, base_ref)
     existing = remote_head(repo, branch_ref)
     if existing is not None and existing != candidate:
         raise BridgeError("Remote branch already exists at a different commit; it was not changed")
@@ -724,9 +760,12 @@ def publish(args: argparse.Namespace) -> None:
         verified = verify_publication(repo, args.gh, repository, pr.get("url", ""),
                                       workspace["branch"], args.base, candidate, observed_base,
                                       require_draft=False)
+        verify_coordination_for_publication(root, args.cell, candidate, observed_base)
+        verify_lineage_for_publication(root, args.cell, repository, candidate, observed_base, base_ref)
         print(json.dumps({"state": "EXISTING_PR", "pr": pr, "head_sha": candidate,
                           "base_sha": observed_base, "verified_pr": verified}, indent=2))
         return
+    verify_lineage_for_publication(root, args.cell, repository, candidate, observed_base, base_ref)
     if existing is None:
         # Re-read immediately before upload. The empty expected value is an
         # atomic create-only lease: Git refuses the update if the ref exists,
@@ -742,6 +781,7 @@ def publish(args: argparse.Namespace) -> None:
     if remote_head(repo, base_ref) != observed_base:
         raise BridgeError("Remote base changed after push; branch preserved, no PR created")
     verify_coordination_for_publication(root, args.cell, candidate, observed_base)
+    verify_lineage_for_publication(root, args.cell, repository, candidate, observed_base, base_ref)
     create = run([args.gh, "pr", "create", "--repo", repository, "--base", args.base,
                   "--head", workspace["branch"], "--title", args.title,
                   "--body", args.body, "--draft"], cwd=repo)
@@ -751,6 +791,8 @@ def publish(args: argparse.Namespace) -> None:
     verified = verify_publication(repo, args.gh, repository, create.stdout.strip(),
                                   workspace["branch"], args.base, candidate, observed_base,
                                   require_draft=True)
+    verify_coordination_for_publication(root, args.cell, candidate, observed_base)
+    verify_lineage_for_publication(root, args.cell, repository, candidate, observed_base, base_ref)
     print(json.dumps({"state": "DRAFT_PR_CREATED", "url": verified["url"],
                       "head_sha": candidate, "base_sha": observed_base, "compiled_base_sha": base_sha}, indent=2))
 
@@ -782,6 +824,7 @@ def main() -> int:
     settle.add_argument("--generation", type=int)
     settle.add_argument("--token")
     settle.add_argument("--reconcile", action="store_true", help="Reconcile an identical previously settled attempt")
+    settle.add_argument("--lineage-review")
     close = sub.add_parser("reconcile", help="Load workspace reconciliation, optionally close")
     close.add_argument("--root", required=True)
     close.add_argument("--file", required=True)
@@ -797,13 +840,14 @@ def main() -> int:
         elif args.command == "publish":
             publish(args)
         elif args.command == "settle":
+            lineage = ["--lineage-review", args.lineage_review] if args.lineage_review else []
             if args.reconcile:
                 print(json.dumps(settle_reconciled(args), indent=2))
             else:
                 print(mc(Path(args.root).resolve(), "settle", "--cell", args.cell, "--attempt", args.attempt,
                          "--result", args.result, "--context-receipt", args.context_receipt,
                          "--adjudication", args.adjudication, *(["--generation", str(args.generation), "--token", args.token]
-                     if args.generation is not None and args.token is not None else [])).strip())
+                     if args.generation is not None and args.token is not None else []), *lineage).strip())
         else:
             root = Path(args.root).resolve()
             print(mc(root, "workspace", "load", "--file", args.file).strip())

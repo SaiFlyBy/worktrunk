@@ -227,7 +227,8 @@ def binding(api, root: Path, dag: dict, state: dict, cell_id: str, workspace_id:
                 or observation.get("source_token") != source_request.get("token")
                 or observation.get("source_generation") != source_request.get("generation")):
             raise ValueError("handoff lacks verified accepted-base observation and safely released source custody")
-        for kind in ("result", "context_receipt", "adjudication"):
+        for kind in ("result", "context_receipt", "adjudication", *(
+                ["lineage_review"] if source.get("lineage_review_ref") else [])):
             if payload.get("accepted_evidence", {}).get(kind) != {"ref": source.get(kind + "_ref"), "sha256": source.get(kind + "_sha256")}:
                 raise ValueError("handoff source evidence no longer matches accepted custody")
         source_result = api.load_json(api.resolve_ref(root, source["result_ref"]))

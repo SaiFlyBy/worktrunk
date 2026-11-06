@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -31,6 +32,13 @@ RESULT_SCHEMA = "flyby/mission-control-result/16"
 STATE_SCHEMA = "flyby/mission-control-execution-state/16"
 COORDINATION_SCHEMA = "flyby/mission-control-execution-state/19"
 COORDINATION_CAPABILITY = "contracts/capabilities/cell-coordination-v1.json"
+COMBINED_STATE_SCHEMA = "flyby/mission-control-execution-state/20"
+LINEAGE_STATE_SCHEMA = "flyby/mission-control-execution-state/18"
+LINEAGE_CORPUS_SCHEMA = "flyby/mission-control-target-corpus/17"
+LINEAGE_BOOTSTRAP = "BOOTSTRAPPED_LINEAGE_V1"
+LINEAGE_CAPABILITY_REF = "contracts/capabilities/lineage-preservation-v1.json"
+LINEAGE_STATE_SCHEMA_REF = "contracts/schemas/EXECUTION_STATE_SCHEMA_V18.json"
+LINEAGE_CORPUS_SCHEMA_REF = "contracts/schemas/TARGET_CORPUS_SCHEMA_V17.json"
 DAG_SCHEMA = "flyby/mission-control-execution-dag/16"
 AUTHORITY_SCHEMA = "flyby/mission-control-authority/16"
 FRONTIER_SCHEMA = "flyby/mission-control-frontier/16"
@@ -79,6 +87,14 @@ def _safe_scope_path(value: str) -> bool:
     return bool(normalized) and all(segment not in {"", ".", ".."} for segment in normalized.split("/"))
 
 
+def _state_schema_ref(coordination: bool, lineage: bool) -> str:
+    if coordination and lineage:
+        return "contracts/schemas/EXECUTION_STATE_SCHEMA_V20.json"
+    if coordination:
+        return "contracts/schemas/EXECUTION_STATE_SCHEMA_V19.json"
+    return LINEAGE_STATE_SCHEMA_REF if lineage else "contracts/schemas/EXECUTION_STATE_SCHEMA.json"
+
+
 def _coordination_enabled(root: Path) -> bool:
     try:
         return COORDINATION_CAPABILITY in load_json(root / "TEMPLATE_LOCK.json").get("assets", {})
@@ -94,10 +110,11 @@ def _coordination():
 
 
 def _stable_lock_required(root: Path) -> bool:
-    if _coordination_enabled(root) or (root / COORDINATION_CAPABILITY).exists():
+    if (_coordination_enabled(root) or (root / COORDINATION_CAPABILITY).exists()
+            or lineage_enabled(root) or (root / LINEAGE_CAPABILITY_REF).exists()):
         return True
     try:
-        return load_json(root / "control/EXECUTION_STATE.json").get("schema") == COORDINATION_SCHEMA
+        return load_json(root / "control/EXECUTION_STATE.json").get("schema") in {COORDINATION_SCHEMA, LINEAGE_STATE_SCHEMA, COMBINED_STATE_SCHEMA}
     except (OSError, ValueError, TypeError):
         return False
 
@@ -182,6 +199,27 @@ def load_json(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
         raise ValueError(f"{path} must contain a JSON object")
+    return value
+
+
+def lineage_enabled(root: Path) -> bool:
+    try:
+        return LINEAGE_CAPABILITY_REF in load_json(root / "TEMPLATE_LOCK.json").get("assets", {})
+    except (OSError, TypeError, ValueError):
+        return False
+
+
+def load_lineage_review(path: Path) -> dict[str, Any]:
+    def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        value: dict[str, Any] = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError(f"duplicate JSON object key: {key}")
+            value[key] = item
+        return value
+    value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
+    if not isinstance(value, dict):
+        raise ValueError("lineage review must be a JSON object")
     return value
 
 
@@ -1000,6 +1038,7 @@ def validate_attempt_history(root: Path, cell_id: str, record: dict[str, Any], p
         for key in (
             "worker_identity", "verifier_identity", "result_ref", "result_sha256",
             "context_receipt_ref", "context_receipt_sha256", "adjudication_ref", "adjudication_sha256",
+            "lineage_review_ref", "lineage_review_sha256",
         ):
             if record.get(key) != last.get(key):
                 errors.append(f"top-level {key} does not match the latest settled attempt")
@@ -1120,7 +1159,15 @@ def _collect_v16_issues(root: Path) -> list[dict[str, str]]:
     for error in schema_errors(root, "contracts/schemas/MISSION_SCHEMA.json", spec):
         out.append(issue("MC0160", f"MISSION.json schema violation: {error}", "MISSION.json violates the canonical author-input schema", "correct MISSION.json and rerun doctor"))
     has_coordination = COORDINATION_CAPABILITY in lock.get("assets", {})
-    state_schema_ref = "contracts/schemas/EXECUTION_STATE_SCHEMA_V19.json" if has_coordination else "contracts/schemas/EXECUTION_STATE_SCHEMA.json"
+    has_lineage = LINEAGE_CAPABILITY_REF in lock.get("assets", {})
+    corpus_schema_ref = LINEAGE_CORPUS_SCHEMA_REF if has_lineage else "contracts/schemas/TARGET_CORPUS_SCHEMA.json"
+    if has_lineage and any(ref not in lock.get("assets", {}) for ref in
+                           (LINEAGE_STATE_SCHEMA_REF, LINEAGE_CORPUS_SCHEMA_REF,
+                            "contracts/schemas/LINEAGE_PRESERVATION_REVIEW_SCHEMA_V1.json",
+                            "runtime/tools/lineage_preservation.py")):
+        out.append(issue("MC0400", "lineage capability assets are not fully sealed",
+                         "the opt-in capability is incomplete", "restore its exact locked assets"))
+    state_schema_ref = _state_schema_ref(has_coordination, has_lineage)
     state_errors = schema_errors(root, state_schema_ref, state)
     for error in state_errors:
         out.append(issue("MC0162", f"execution-state schema violation: {error}", "mutable execution state is malformed", "restore or repair execution state before any transition"))
@@ -1135,7 +1182,7 @@ def _collect_v16_issues(root: Path) -> list[dict[str, str]]:
         ("contracts/schemas/CURRENT_AUTHORITY_SCHEMA.json", current, "MC0222", "CURRENT_AUTHORITY"),
         ("contracts/schemas/EXECUTION_DAG_SCHEMA.json", dag, "MC0223", "EXECUTION_DAG"),
         ("contracts/schemas/COMPILER_CONTROL_SCHEMA.json", compiler, "MC0224", "COMPILER_CONTROL"),
-        ("contracts/schemas/TARGET_CORPUS_SCHEMA.json", target_corpus, "MC0225", "TARGET_MUTATIONS"),
+        (corpus_schema_ref, target_corpus, "MC0225", "TARGET_MUTATIONS"),
         ("contracts/schemas/SOURCE_REGISTRY_SCHEMA.json", source_registry, "MC0226", "SOURCES"),
         ("contracts/schemas/PROVENANCE_SYNTHESIS_SCHEMA.json", provenance_synthesis, "MC0270", "PROVENANCE_SYNTHESIS"),
         ("contracts/schemas/WORKSPACE_LEDGER_SCHEMA.json", workspace_ledger, "MC0309", "WORKSPACE_LEDGER"),
@@ -1250,6 +1297,45 @@ def _collect_v16_issues(root: Path) -> list[dict[str, str]]:
         elif materialization_mode == "TARGET_HAS_NO_LINEAGE_MANIFEST":
             if target_refs or coverage_requirement_id is not None or validation_schema_ref is not None:
                 out.append(issue("MC0328", "TARGET_HAS_NO_LINEAGE_MANIFEST carries target refs, schema or coverage requirement", "the no-manifest declaration contradicts executable lineage metadata", "clear target_refs/validation_schema_ref/coverage_requirement_id or declare a required manifest mode"))
+        elif materialization_mode == "SAME_REPOSITORY_NO_NEW_HARVEST":
+            preservation = provenance_materialization.get("preservation")
+            problems = []
+            if (not has_lineage or not isinstance(preservation, dict)
+                    or not (TOOLS_DIR / "lineage_preservation.py").is_file()):
+                problems.append("the versioned lineage capability and preservation contract are required")
+            else:
+                from lineage_preservation import _safe_git_path, validate_target_profile
+                repository = preservation.get("repository")
+                files = preservation.get("protected_files", [])
+                problems.extend(validate_target_profile(repository, files))
+                targets = {item.get("repository") for item in spec.get("target_repositories", []) if isinstance(item, dict)}
+                if targets != {repository}:
+                    problems.append("preservation v1 requires exactly one mission target repository")
+                relevant = [r for r in requirements if isinstance(r, dict) and r.get("id") == coverage_requirement_id]
+                if (coverage_requirement_id not in active_requirement_ids or len(relevant) != 1
+                        or repository not in relevant[0].get("targets", [])):
+                    problems.append("an active coverage requirement must target the preservation repository")
+                roles = [item.get("role") for item in files if isinstance(item, dict)] if isinstance(files, list) else []
+                paths = [item.get("path") for item in files if isinstance(item, dict)] if isinstance(files, list) else []
+                lineage_paths = [item.get("path") for item in files if isinstance(item, dict) and item.get("role") == "LINEAGE"] if isinstance(files, list) else []
+                if (not lineage_paths or roles.count("HARVEST") != 1 or roles.count("POLICY") != 1
+                        or roles.count("VALIDATOR") != 1):
+                    problems.append("bind existing lineage, harvest, target policy and validator files")
+                if (len(paths) != len(files) or len(paths) != len(set(paths))
+                        or any(not _safe_git_path(path) for path in paths)):
+                    problems.append("protected file paths must be unique literal relative paths")
+                if not isinstance(target_refs, list) or set(target_refs) != set(lineage_paths):
+                    problems.append("target_refs must exactly identify the preserved lineage files")
+            if validation_schema_ref is not None:
+                problems.append("preservation uses exact existing bytes, not a new manifest schema")
+            for problem in problems:
+                out.append(issue("MC0402", f"lineage preservation contract invalid: {problem}",
+                                 "the no-new-harvest exemption is incomplete or contradictory",
+                                 "repair the versioned preservation contract before compiling"))
+        if materialization_mode != "SAME_REPOSITORY_NO_NEW_HARVEST" and "preservation" in provenance_materialization:
+            out.append(issue("MC0402", "lineage preservation metadata is present under another mode",
+                             "the preservation contract would not be enforced",
+                             "use the explicit preservation mode or remove that metadata"))
     invalid_requirement_ids = [value for value in requirement_ids if not valid_control_id(value)]
     if invalid_requirement_ids:
         out.append(issue("MC0249", f"TARGET_MUTATIONS contains unsafe requirement ids: {invalid_requirement_ids}", "requirement ids are not portable control identities", "use 1-64 character uppercase control ids and avoid reserved Windows device names"))
@@ -1874,11 +1960,15 @@ def _collect_v16_issues(root: Path) -> list[dict[str, str]]:
     if missing_frontier_provenance:
         out.append(issue("MC0236", f"canonical cells lack source frontier provenance: {missing_frontier_provenance}", "DAG contains cells that cannot be traced to a stored compiler input", "restore each cell's immutable source frontier"))
 
-    expected_state_schema = COORDINATION_SCHEMA if has_coordination else STATE_SCHEMA
+    expected_state_schema = (COMBINED_STATE_SCHEMA if has_coordination and has_lineage else
+                             COORDINATION_SCHEMA if has_coordination else LINEAGE_STATE_SCHEMA if has_lineage else STATE_SCHEMA)
     if state.get("schema") != expected_state_schema or state.get("mission_id") != mid:
         out.append(issue("MC0175", "execution state schema/mission mismatch", "state belongs to a different mission/revision", "regenerate execution state"))
+    if has_lineage and state.get("mission_root") != str(root.resolve()):
+        out.append(issue("MC0401", "lineage mission root differs from its initialized location",
+                         "the mission may have been copied or moved", "use the original root or a supported successor"))
     lifecycle = state.get("lifecycle")
-    if lifecycle not in LIFECYCLE:
+    if lifecycle not in LIFECYCLE and not (has_lineage and lifecycle == LINEAGE_BOOTSTRAP):
         out.append(issue("MC0176", f"invalid lifecycle state: {lifecycle}", "manual/unsupported lifecycle transition", "use mc lifecycle commands"))
     workspace_reconciliation_path = root / "handoff" / "WORKSPACE_RECONCILIATION.json"
     if workspace_reconciliation_path.is_file():
@@ -1907,6 +1997,16 @@ def _collect_v16_issues(root: Path) -> list[dict[str, str]]:
                 qualification = load_json(qualification_path)
                 qualification_errors = schema_errors(root, "contracts/schemas/QUALIFICATION_SCHEMA.json", qualification)
                 qualification_errors.extend(validate_qualification_accounting(root, qualification))
+                if has_lineage and provenance_materialization.get("mode") == "SAME_REPOSITORY_NO_NEW_HARVEST":
+                    final_ref = state.get("lineage_final_review_ref")
+                    final_path = resolve_ref(root, str(final_ref))
+                    if (final_ref != "handoff/LINEAGE_PRESERVATION_REVIEW.json" or not final_path.is_file()
+                            or state.get("lineage_final_review_sha256") != sha256(final_path)):
+                        qualification_errors.append("final lineage review is missing or changed")
+                    else:
+                        qualification_errors.extend(_final_lineage_review_errors(
+                            root, state, dag, qualification, str(state.get("lineage_final_review_cell")),
+                            load_lineage_review(final_path)))
                 for error in qualification_errors:
                     out.append(issue("MC0204", f"qualification evidence invalid: {error}", "qualification no longer satisfies its contract", "restore valid evidence or invalidate acceptance"))
             except Exception as exc:
@@ -1985,6 +2085,28 @@ def _collect_v16_issues(root: Path) -> list[dict[str, str]]:
                             out.append(issue("MC0216", f"attempt lineage invalid for {cid}: {error}", "retry/settlement history is incomplete or was mutated", "restore immutable attempt evidence or invalidate/re-execute the cell"))
                     except Exception as exc:
                         out.append(issue("MC0189", f"cannot verify compiled packet parity for {cid}: {exc}", "packet/context corruption", "recompile the affected frontier"))
+            if (has_lineage and isinstance(canonical_cell, dict) and canonical_cell.get("kind") == "MUTATION"
+                    and record.get("state") == "ACCEPTED"
+                    and provenance_materialization.get("mode") == "SAME_REPOSITORY_NO_NEW_HARVEST"
+                    and isinstance(canonical_cell.get("target"), dict)
+                    and canonical_cell["target"].get("repository") == provenance_materialization.get("preservation", {}).get("repository")):
+                try:
+                    review_ref = record.get("lineage_review_ref")
+                    expected_ref = f"evidence/{cid}/attempt-{int(record.get('attempt', 0)):04d}/lineage_preservation_review.json"
+                    review_path = resolve_ref(root, str(review_ref))
+                    if review_ref != expected_ref or not review_path.is_file() or sha256(review_path) != record.get("lineage_review_sha256"):
+                        raise ValueError("accepted lineage review is missing, noncanonical or changed")
+                    review = load_lineage_review(review_path)
+                    result = load_json(resolve_ref(root, str(record.get("result_ref"))))
+                    reviewed_base = review.get("publication_base_sha", review.get("policy_base_sha"))
+                    for error in _lineage_review_errors(root, state, cid, record, result, review, str(reviewed_base), check_git=False):
+                        out.append(issue("MC0403", f"accepted lineage review invalid for {cid}: {error}",
+                                         "candidate, source or review custody changed",
+                                         "restore or independently re-review the exact candidate"))
+                except Exception as exc:
+                    out.append(issue("MC0403", f"accepted lineage review cannot be verified for {cid}: {exc}",
+                                     "lineage review evidence is missing or malformed",
+                                     "restore the exact review before continuing"))
             settled = canonical_cell and canonical_cell.get("kind") != "BARRIER" and record.get("state") in {"CANDIDATE", "ACCEPTED", "REJECTED", "FAILED", "BLOCKED"}
             if settled:
                 result_ref = record.get("result_ref")
@@ -2319,7 +2441,7 @@ def _template_root_from_source_cli() -> Path:
     return root
 
 
-def _template_provenance(template_root: Path, *, coordination: bool = False) -> dict[str, str | None]:
+def _template_provenance(template_root: Path, *, coordination: bool = False, lineage: bool = False) -> dict[str, str | None]:
     try:
         commit_proc = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=template_root, check=True, capture_output=True, text=True,
@@ -2335,7 +2457,7 @@ def _template_provenance(template_root: Path, *, coordination: bool = False) -> 
         )
         repo_root = Path(repo_proc.stdout.strip()).resolve()
         sources = [template_root / "TEMPLATE.json"] + [
-            source for source, _ in _template_asset_pairs(template_root, template_root, coordination=coordination)
+            source for source, _ in _template_asset_pairs(template_root, template_root, coordination=coordination, lineage=lineage)
         ]
         relative_sources = [source.resolve().relative_to(repo_root).as_posix() for source in sources]
         tracked_proc = subprocess.run(
@@ -2380,7 +2502,7 @@ def _template_provenance(template_root: Path, *, coordination: bool = False) -> 
         }
 
 
-def _template_asset_pairs(template_root: Path, root: Path, *, coordination: bool = False) -> list[tuple[Path, Path]]:
+def _template_asset_pairs(template_root: Path, root: Path, *, coordination: bool = False, lineage: bool = False) -> list[tuple[Path, Path]]:
     pairs: list[tuple[Path, Path]] = []
     for source_dir, destination_dir in (
         (template_root / "schemas", root / "contracts" / "schemas"),
@@ -2388,13 +2510,24 @@ def _template_asset_pairs(template_root: Path, root: Path, *, coordination: bool
     ):
         for source in sorted(source_dir.rglob("*")):
             if source.is_file():
+                optional_lineage = {"EXECUTION_STATE_SCHEMA_V18.json", "TARGET_CORPUS_SCHEMA_V17.json",
+                                    "LINEAGE_PRESERVATION_REVIEW_SCHEMA_V1.json"}
+                if source.name in optional_lineage and not lineage:
+                    continue
                 if source.name in {"EXECUTION_STATE_SCHEMA_V19.json", "FENCE_OBSERVATION_SCHEMA_V1.json"} and not coordination:
+                    continue
+                if source.name == "EXECUTION_STATE_SCHEMA_V20.json" and not (coordination and lineage):
                     continue
                 pairs.append((source, destination_dir / source.relative_to(source_dir)))
     if coordination:
         pairs.extend((
             (template_root / "capabilities/cell-coordination-v1.json", root / COORDINATION_CAPABILITY),
             (template_root / "tools/coordination_v1.py", root / "runtime/tools/coordination_v1.py"),
+        ))
+    if lineage:
+        pairs.extend((
+            (template_root / "capabilities/lineage-preservation-v1.json", root / LINEAGE_CAPABILITY_REF),
+            (template_root / "tools/lineage_preservation.py", root / "runtime/tools/lineage_preservation.py"),
         ))
     pairs.extend((
         (template_root / "tools" / "mc.py", root / "runtime" / "tools" / "mc.py"),
@@ -2405,9 +2538,9 @@ def _template_asset_pairs(template_root: Path, root: Path, *, coordination: bool
     return pairs
 
 
-def _copy_assets(template_root: Path, root: Path, *, coordination: bool = False) -> list[str]:
+def _copy_assets(template_root: Path, root: Path, *, coordination: bool = False, lineage: bool = False) -> list[str]:
     copied: list[str] = []
-    for source, destination in _template_asset_pairs(template_root, root, coordination=coordination):
+    for source, destination in _template_asset_pairs(template_root, root, coordination=coordination, lineage=lineage):
         if not source.is_file():
             raise FileNotFoundError(f"template asset missing: {source}")
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -2467,7 +2600,8 @@ def cmd_init(args: argparse.Namespace) -> int:
     for rel in ("control", "corpus", "contracts/schemas", "contracts/policies", "runtime/tools", "runtime/tests", "frontiers/F000", "evidence", "handoff"):
         (root / rel).mkdir(parents=True, exist_ok=True)
     coordination = bool(getattr(args, "cell_coordination", False))
-    copied = _copy_assets(template_root, root, coordination=coordination)
+    use_lineage = bool(getattr(args, "lineage_preservation", False))
+    copied = _copy_assets(template_root, root, coordination=coordination, lineage=use_lineage)
     target_map = {t["repository"]: t["baseline_sha"].lower() for t in spec["target_repositories"]}
     current = {
         "schema": AUTHORITY_SCHEMA,
@@ -2498,11 +2632,17 @@ def cmd_init(args: argparse.Namespace) -> int:
         "frontier": {"compiled": [], "dispatched": [], "accepted": []},
     }
     if coordination:
-        import uuid
         state["schema"] = COORDINATION_SCHEMA
         state["coordination"] = {"schema": "flyby/mission-control-coordination/1",
                                   "instance_id": str(uuid.uuid4()), "authority_root": str(root),
                                   "next_order": 0, "history": []}
+    if use_lineage:
+        state["schema"] = LINEAGE_STATE_SCHEMA
+        state["lifecycle"] = LINEAGE_BOOTSTRAP
+        state["mission_instance_id"] = str(uuid.uuid4())
+        state["mission_root"] = str(root.resolve())
+    if coordination and use_lineage:
+        state["schema"] = COMBINED_STATE_SCHEMA
     compiler = {
         "schema": "flyby/mission-control-compiler-control/16",
         "mission_id": spec["mission_id"],
@@ -2541,7 +2681,7 @@ def cmd_init(args: argparse.Namespace) -> int:
             "remote_url": None,
         }],
     })
-    write_json(root / "corpus" / "TARGET_MUTATIONS.json", {"schema": "flyby/mission-control-target-corpus/16", "mission_id": spec["mission_id"], "provenance_materialization": {"mode": "TARGET_HAS_NO_LINEAGE_MANIFEST", "target_refs": [], "coverage_requirement_id": None, "validation_schema_ref": None, "authority": "LINEAGE_ONLY", "acceptance": ["Mission author must explicitly confirm or replace this default before source-driven mutation compilation."]}, "requirements": []})
+    write_json(root / "corpus" / "TARGET_MUTATIONS.json", {"schema": LINEAGE_CORPUS_SCHEMA if use_lineage else "flyby/mission-control-target-corpus/16", "mission_id": spec["mission_id"], "provenance_materialization": {"mode": "TARGET_HAS_NO_LINEAGE_MANIFEST", "target_refs": [], "coverage_requirement_id": None, "validation_schema_ref": None, "authority": "LINEAGE_ONLY", "acceptance": ["Mission author must explicitly confirm or replace this default before source-driven mutation compilation."]}, "requirements": []})
     source_entries = [{
         "id": "owner-intent",
         "kind": "OWNER_INTENT",
@@ -2575,7 +2715,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     write_json(root / "TEMPLATE_LOCK.json", {
         "schema": "flyby/mission-control-template-lock/16",
         "template_schema": TEMPLATE_SCHEMA,
-        **_template_provenance(template_root, coordination=coordination),
+        **_template_provenance(template_root, coordination=coordination, lineage=use_lineage),
         "source_template_root": "mission-control-template",
         "assets": assets,
     })
@@ -2660,8 +2800,11 @@ def _load_semantic_input(root: Path, source_file: Path, destination: Path, schem
     except Exception as exc:
         print(f"cannot load {label}: {exc}", file=sys.stderr)
         return 1
-    if state.get("lifecycle") != "BOOTSTRAPPED":
-        print(f"{label} can change only before baseline compilation; lifecycle is {state.get('lifecycle')}", file=sys.stderr)
+    lifecycle = state.get("lifecycle")
+    valid_lineage_bootstrap = (lifecycle == LINEAGE_BOOTSTRAP and lineage_enabled(root)
+                               and state.get("schema") in {LINEAGE_STATE_SCHEMA, COMBINED_STATE_SCHEMA})
+    if lifecycle != "BOOTSTRAPPED" and not valid_lineage_bootstrap:
+        print(f"{label} can change only before baseline compilation; lifecycle is {lifecycle}", file=sys.stderr)
         return 1
     errors = schema_errors(root, schema_ref, candidate)
     if candidate.get("mission_id") != mission.get("mission_id"):
@@ -3168,7 +3311,7 @@ def cmd_corpus_load(args: argparse.Namespace) -> int:
         root,
         Path(args.file).resolve(),
         root / "corpus" / "TARGET_MUTATIONS.json",
-        "contracts/schemas/TARGET_CORPUS_SCHEMA.json",
+        LINEAGE_CORPUS_SCHEMA_REF if lineage_enabled(root) else "contracts/schemas/TARGET_CORPUS_SCHEMA.json",
         "target corpus",
     )
 
@@ -3323,10 +3466,10 @@ def cmd_baseline_compile(args: argparse.Namespace) -> int:
     if not _doctor_or_fail(root):
         return 1
     dag, state = _load_v16(root)
-    if state["lifecycle"] not in {"BOOTSTRAPPED", "BASELINE_READY"}:
+    if state["lifecycle"] not in {"BOOTSTRAPPED", LINEAGE_BOOTSTRAP, "BASELINE_READY"}:
         print(f"baseline compile not allowed from {state['lifecycle']}", file=sys.stderr)
         return 1
-    if state["lifecycle"] == "BOOTSTRAPPED":
+    if state["lifecycle"] in {"BOOTSTRAPPED", LINEAGE_BOOTSTRAP}:
         corpus = load_json(root / "corpus" / "TARGET_MUTATIONS.json")
         if not corpus.get("requirements"):
             print("baseline compile requires a non-empty target corpus loaded through `mc corpus load`", file=sys.stderr)
@@ -3454,7 +3597,8 @@ def cmd_retry(args: argparse.Namespace) -> int:
     record["state"] = "COMPILED"
     for key in (
         "result_ref", "result_sha256", "context_receipt_ref", "context_receipt_sha256",
-        "adjudication_ref", "adjudication_sha256", "worker_identity", "verifier_identity",
+        "adjudication_ref", "adjudication_sha256", "lineage_review_ref", "lineage_review_sha256",
+        "worker_identity", "verifier_identity",
     ):
         record.pop(key, None)
     state["cells"][args.cell] = record
@@ -3561,6 +3705,98 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     return 0
 
 
+def _lineage_review_errors(root: Path, state: dict[str, Any], cell_id: str,
+                           record: dict[str, Any], result: dict[str, Any],
+                           review: dict[str, Any], publication_base: str, *, check_git: bool = True) -> list[str]:
+    from lineage_preservation import verify_preservation_review
+    errors = schema_errors(root, "contracts/schemas/LINEAGE_PRESERVATION_REVIEW_SCHEMA_V1.json", review)
+    if errors:
+        return errors
+    corpus = load_json(root / "corpus" / "TARGET_MUTATIONS.json")
+    sources = load_json(root / "corpus" / "SOURCES.json")
+    synthesis = load_json(root / "corpus" / "PROVENANCE_SYNTHESIS.json")
+    contract = corpus.get("provenance_materialization", {}).get("preservation", {})
+    repository = contract.get("repository") if isinstance(contract, dict) else None
+    scope_base = record.get("coordination", {}).get("binding", {}).get("scope_base")
+    if scope_base is not None and publication_base != scope_base:
+        return ["lineage review publication base differs from the admitted scope base"]
+    outcomes = [item for item in result.get("target_outcomes", [])
+                if isinstance(item, dict) and item.get("repository") == repository]
+    if len(outcomes) != 1 or not isinstance(outcomes[0].get("head_sha"), str):
+        return ["lineage review requires one exact accepted target head"]
+    ledger = load_json(root / "control" / "WORKSPACE_LEDGER.json")
+    entries = [item for item in ledger.get("entries", []) if isinstance(item, dict)
+               and item.get("kind") == "TARGET" and item.get("repository") == repository
+               and isinstance(item.get("worktree_path"), str)]
+    matching = [item for item in entries if item.get("workspace_id") == record.get("workspace_id")]
+    entry = matching[0] if len(matching) == 1 else None
+    if not isinstance(entry, dict):
+        return ["lineage review requires one unambiguous registered physical target workspace"]
+    errors.extend(verify_preservation_review(
+        root, Path(entry["worktree_path"]), corpus, sources, synthesis, state,
+        cell_id, record, outcomes[0]["head_sha"], publication_base, review, check_git=check_git,
+    ))
+    return errors
+
+
+def _final_lineage_review_errors(root: Path, state: dict[str, Any], dag: dict[str, Any],
+                                 qualification: dict[str, Any], cell_id: str,
+                                 review: dict[str, Any]) -> list[str]:
+    cell = _find_cell(dag, cell_id)
+    record = state.get("cells", {}).get(cell_id, {})
+    if not isinstance(cell, dict) or cell.get("kind") != "QUALIFICATION" or record.get("state") != "ACCEPTED":
+        return ["final lineage review must bind an accepted QUALIFICATION cell"]
+    workspace_id = review.get("workspace_id")
+    if not isinstance(workspace_id, str) or not workspace_id:
+        return ["final lineage review must bind a registered workspace_id"]
+    corpus = load_json(root / "corpus" / "TARGET_MUTATIONS.json")
+    contract = corpus.get("provenance_materialization", {}).get("preservation", {})
+    repository = contract.get("repository") if isinstance(contract, dict) else None
+    outcomes = [item for item in qualification.get("target_outcomes", [])
+                if isinstance(item, dict) and item.get("repository") == repository]
+    if len(outcomes) != 1 or not isinstance(outcomes[0].get("accepted_head_sha"), str):
+        return ["qualification must name one exact accepted head for the preserved repository"]
+    synthetic_result = {"target_outcomes": [{"repository": repository,
+                                             "head_sha": outcomes[0]["accepted_head_sha"]}]}
+    bound_record = {**record, "workspace_id": workspace_id}
+    return _lineage_review_errors(root, state, cell_id, bound_record, synthetic_result, review,
+                                  str(review.get("publication_base_sha", review.get("policy_base_sha"))))
+
+
+def cmd_lineage_verify(args: argparse.Namespace) -> int:
+    root = Path(args.root).resolve()
+    if not _doctor_or_fail(root) or not lineage_enabled(root):
+        print("lineage preservation is not available for this mission", file=sys.stderr)
+        return 1
+    dag, state = _load_v16(root)
+    cell = _find_cell(dag, args.cell)
+    record = state.get("cells", {}).get(args.cell, {})
+    if not isinstance(cell, dict) or cell.get("kind") != "MUTATION" or record.get("state") != "ACCEPTED":
+        print("lineage verification requires an accepted mutation cell", file=sys.stderr)
+        return 1
+    try:
+        review_ref = record.get("lineage_review_ref")
+        review_path = resolve_ref(root, str(review_ref))
+        if (not isinstance(review_ref, str) or not review_path.is_file()
+                or record.get("lineage_review_sha256") != sha256(review_path)):
+            raise ValueError("accepted lineage review is missing or changed")
+        review = load_lineage_review(review_path)
+        result = load_json(resolve_ref(root, record["result_ref"]))
+        outcomes = result.get("target_outcomes", [])
+        if len(outcomes) != 1 or outcomes[0].get("head_sha") != args.candidate:
+            raise ValueError("candidate differs from accepted mutation evidence")
+        errors = _lineage_review_errors(root, state, args.cell, record, result, review, args.publication_base)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        errors = [str(exc)]
+    if errors:
+        print(json.dumps({"state": "REJECTED", "errors": errors}, indent=2), file=sys.stderr)
+        return 1
+    print(json.dumps({"state": "VERIFIED", "cell": args.cell, "candidate": args.candidate,
+                      "publication_base": args.publication_base, "review_ref": review_ref,
+                      "review_sha256": record["lineage_review_sha256"]}, indent=2))
+    return 0
+
+
 def cmd_settle(args: argparse.Namespace) -> int:
     root = Path(args.root).resolve()
     if not _settlement_preflight(root, args.cell, args.attempt):
@@ -3600,6 +3836,27 @@ def cmd_settle(args: argparse.Namespace) -> int:
         expected_worker_identity=record.get("worker_identity") if isinstance(record.get("worker_identity"), str) else None,
         expected_verifier_identity=record.get("verifier_identity") if isinstance(record.get("verifier_identity"), str) else None,
     ))
+    state_name = adjudication_state(adjudication.get("decision"))
+    lineage_review = None
+    corpus = load_json(root / "corpus" / "TARGET_MUTATIONS.json")
+    materialization = corpus.get("provenance_materialization", {})
+    needs_lineage_review = (lineage_enabled(root) and isinstance(materialization, dict)
+            and materialization.get("mode") == "SAME_REPOSITORY_NO_NEW_HARVEST"
+            and cell.get("kind") == "MUTATION" and state_name == "ACCEPTED"
+            and isinstance(cell.get("target"), dict)
+            and cell["target"].get("repository") == materialization.get("preservation", {}).get("repository"))
+    if args.lineage_review and not needs_lineage_review:
+        errors.append("lineage review is only valid for an accepted mutation in preservation mode")
+    if needs_lineage_review:
+        if not args.lineage_review:
+            errors.append("accepted mutation requires an independent candidate-bound lineage review")
+        else:
+            try:
+                lineage_review = load_lineage_review(Path(args.lineage_review).resolve())
+                errors.extend(_lineage_review_errors(root, state, args.cell, record, result,
+                                                     lineage_review, str(lineage_review.get("publication_base_sha", lineage_review.get("policy_base_sha")))))
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                errors.append(f"lineage review cannot be validated: {exc}")
     if errors:
         print(json.dumps({"state": "REJECTED", "errors": errors}, indent=2), file=sys.stderr)
         return 1
@@ -3616,6 +3873,8 @@ def cmd_settle(args: argparse.Namespace) -> int:
         write_immutable_json(result_path, result)
         write_immutable_json(receipt_path, receipt)
         write_immutable_json(adjudication_path, adjudication)
+        if lineage_review is not None:
+            write_immutable_json(evidence_root / "lineage_preservation_review.json", lineage_review)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 1
@@ -3630,6 +3889,10 @@ def cmd_settle(args: argparse.Namespace) -> int:
     record["context_receipt_sha256"] = sha256(receipt_path)
     record["adjudication_ref"] = adjudication_path.relative_to(root).as_posix()
     record["adjudication_sha256"] = sha256(adjudication_path)
+    if lineage_review is not None:
+        lineage_path = evidence_root / "lineage_preservation_review.json"
+        record["lineage_review_ref"] = lineage_path.relative_to(root).as_posix()
+        record["lineage_review_sha256"] = sha256(lineage_path)
     history = list(record.get("attempt_history", []))
     history.append({
         "attempt": current_attempt,
@@ -3643,6 +3906,9 @@ def cmd_settle(args: argparse.Namespace) -> int:
         "adjudication_ref": record["adjudication_ref"],
         "adjudication_sha256": record["adjudication_sha256"],
     })
+    if lineage_review is not None:
+        history[-1]["lineage_review_ref"] = record["lineage_review_ref"]
+        history[-1]["lineage_review_sha256"] = record["lineage_review_sha256"]
     record["attempt_history"] = history
     state["cells"][args.cell] = record
     state["frontier"]["dispatched"] = sorted(set(state["frontier"]["dispatched"]) - {args.cell})
@@ -4132,6 +4398,13 @@ def cmd_qualify(args: argparse.Namespace) -> int:
     if not _doctor_or_fail(root):
         return 1
     dag, state = _load_v16(root)
+    corpus = load_json(root / "corpus" / "TARGET_MUTATIONS.json")
+    materialization = corpus.get("provenance_materialization", {})
+    lineage_mode = (lineage_enabled(root) and isinstance(materialization, dict)
+                    and materialization.get("mode") == "SAME_REPOSITORY_NO_NEW_HARVEST")
+    if (args.lineage_review or args.lineage_cell) and (not lineage_mode or not args.result):
+        print("lineage qualification options require a preservation-mode qualification result", file=sys.stderr)
+        return 1
     qualification_cells = [c["cell_id"] for c in dag["cells"] if c.get("kind") == "QUALIFICATION"]
     if not qualification_cells:
         print("qualification requires at least one typed QUALIFICATION cell", file=sys.stderr)
@@ -4167,19 +4440,38 @@ def cmd_qualify(args: argparse.Namespace) -> int:
     result = load_json(Path(args.result).resolve())
     errors = schema_errors(root, "contracts/schemas/QUALIFICATION_SCHEMA.json", result)
     errors.extend(validate_qualification_accounting(root, result))
+    final_lineage_review = None
+    if lineage_mode:
+        if not args.lineage_review or not args.lineage_cell:
+            errors.append("final qualification requires an independent lineage review and accepted qualification cell")
+        else:
+            try:
+                final_lineage_review = load_lineage_review(Path(args.lineage_review).resolve())
+                errors.extend(_final_lineage_review_errors(root, state, dag, result, args.lineage_cell, final_lineage_review))
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                errors.append(f"final lineage review cannot be validated: {exc}")
     if errors:
         print(json.dumps({"state": "REJECTED", "errors": errors}, indent=2), file=sys.stderr)
         return 1
     qualification_path = root / "handoff" / "QUALIFICATION.json"
     try:
         write_immutable_json(qualification_path, result)
+        if final_lineage_review is not None:
+            write_immutable_json(root / "handoff" / "LINEAGE_PRESERVATION_REVIEW.json", final_lineage_review)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 1
     state["qualification_ref"] = qualification_path.relative_to(root).as_posix()
     state["qualification_sha256"] = sha256(qualification_path)
+    if final_lineage_review is not None:
+        final_path = root / "handoff" / "LINEAGE_PRESERVATION_REVIEW.json"
+        state["lineage_final_review_ref"] = final_path.relative_to(root).as_posix()
+        state["lineage_final_review_sha256"] = sha256(final_path)
+        state["lineage_final_review_cell"] = args.lineage_cell
     state["lifecycle"] = "ACCEPTED"
     _save_state(root, state)
+    if final_lineage_review is not None:
+        print("Lineage qualification is offline; recheck the current main ref before integration.", file=sys.stderr)
     return cmd_doctor(argparse.Namespace(root=str(root)))
 
 
@@ -4275,7 +4567,7 @@ def _bootstrap_invalid_recovery_is_pristine(root: Path) -> tuple[bool, str]:
         return False, f"bootstrap control cannot be read: {exc}"
     if current.get("status") != "BOOTSTRAP_INVALID":
         return False, "bootstrap status is not BOOTSTRAP_INVALID"
-    if state.get("lifecycle") != "BOOTSTRAPPED":
+    if state.get("lifecycle") not in {"BOOTSTRAPPED", LINEAGE_BOOTSTRAP}:
         return False, f"execution lifecycle advanced to {state.get('lifecycle')}"
     expected_ids = set(BASELINE_AUDITS) | {"G000"}
     cells = dag.get("cells", [])
@@ -4323,12 +4615,7 @@ def cmd_repair_bootstrap(args: argparse.Namespace) -> int:
         return 1
 
     coordination = _coordination_enabled(root)
-    asset_pairs = _template_asset_pairs(template_root, root, coordination=coordination)
     lock_path = root / "TEMPLATE_LOCK.json"
-    source_assets = {
-        destination.relative_to(root).as_posix(): sha256(source)
-        for source, destination in asset_pairs
-    }
     if not lock_path.is_file():
         print(json.dumps({
             "state": "REPAIR_BLOCKED",
@@ -4344,6 +4631,12 @@ def cmd_repair_bootstrap(args: argparse.Namespace) -> int:
     if existing_lock.get("template_schema") != TEMPLATE_SCHEMA or not isinstance(locked_assets, dict):
         print("bootstrap repair requires a valid existing template lock", file=sys.stderr)
         return 1
+    use_lineage = LINEAGE_CAPABILITY_REF in locked_assets
+    asset_pairs = _template_asset_pairs(template_root, root, coordination=coordination, lineage=use_lineage)
+    source_assets = {
+        destination.relative_to(root).as_posix(): sha256(source)
+        for source, destination in asset_pairs
+    }
     if locked_assets != source_assets:
         print(json.dumps({
             "state": "REPAIR_BLOCKED",
@@ -4375,7 +4668,7 @@ def cmd_repair_bootstrap(args: argparse.Namespace) -> int:
     top_level_dirs = {name: (root / name).exists() for name in ("contracts", "runtime")}
 
     try:
-        copied = _copy_assets(template_root, root, coordination=coordination)
+        copied = _copy_assets(template_root, root, coordination=coordination, lineage=use_lineage)
         for path in unlocked_generated:
             path.unlink(missing_ok=True)
         write_json(lock_path, existing_lock)
@@ -4418,6 +4711,8 @@ def build_parser() -> argparse.ArgumentParser:
     init = sub.add_parser("init")
     init.add_argument("--mission", required=True)
     init.add_argument("--cell-coordination", action="store_true", help="enable durable target ownership for a new mission")
+    init.add_argument("--lineage-preservation", action="store_true",
+                      help="enable the versioned same-repository lineage preservation contract for a new mission")
     init.set_defaults(func=cmd_init)
     for name, func in (("doctor", cmd_doctor), ("status", cmd_status), ("integrate", cmd_integrate), ("close", cmd_close), ("test", cmd_test)):
         p = sub.add_parser(name)
@@ -4489,7 +4784,16 @@ def build_parser() -> argparse.ArgumentParser:
     settle.add_argument("--adjudication", required=True)
     settle.add_argument("--generation", type=int)
     settle.add_argument("--token")
+    settle.add_argument("--lineage-review")
     settle.set_defaults(func=cmd_settle)
+    lineage = sub.add_parser("lineage")
+    lineage_sub = lineage.add_subparsers(dest="lineage_command", required=True)
+    lineage_verify = lineage_sub.add_parser("verify")
+    lineage_verify.add_argument("--root", required=True)
+    lineage_verify.add_argument("--cell", required=True)
+    lineage_verify.add_argument("--candidate", required=True)
+    lineage_verify.add_argument("--publication-base", required=True)
+    lineage_verify.set_defaults(func=cmd_lineage_verify)
     compile_cmd = sub.add_parser("compile")
     compile_cmd.add_argument("--root", required=True)
     compile_cmd.add_argument("--frontier", required=True)
@@ -4497,6 +4801,8 @@ def build_parser() -> argparse.ArgumentParser:
     qualify = sub.add_parser("qualify")
     qualify.add_argument("--root", required=True)
     qualify.add_argument("--result")
+    qualify.add_argument("--lineage-review")
+    qualify.add_argument("--lineage-cell")
     qualify.set_defaults(func=cmd_qualify)
     repair = sub.add_parser("repair")
     repair_sub = repair.add_subparsers(dest="repair_command", required=True)
@@ -4519,8 +4825,10 @@ def main(argv: Iterable[str] | None = None) -> int:
     else:
         return int(args.func(args))
     try:
-        capable_init = args.command == "init" and bool(getattr(args, "cell_coordination", False))
-        if capable_init and any((parent / ".git").exists() for parent in (root, *root.parents)):
+        capable_init = args.command == "init" and bool(
+            getattr(args, "cell_coordination", False) or getattr(args, "lineage_preservation", False))
+        coordination_init = args.command == "init" and bool(getattr(args, "cell_coordination", False))
+        if coordination_init and any((parent / ".git").exists() for parent in (root, *root.parents)):
             raise ValueError("coordination authority must be outside target Git worktrees")
         if capable_init and any((root / name).exists() for name in
                                 ("TEMPLATE_LOCK.json", "control", "runtime", "contracts", "corpus", "frontiers", "evidence", "handoff")):
