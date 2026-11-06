@@ -1,6 +1,7 @@
 """Reject generated release jobs outside the fork's Linux/Windows CI policy."""
 import json
 from pathlib import Path
+import shlex
 import sys
 
 TARGETS = {"aarch64-unknown-linux-musl", "x86_64-unknown-linux-musl", "x86_64-pc-windows-msvc"}
@@ -17,6 +18,18 @@ def validate(plan):
             raise ValueError("release plan contains a runner outside the Linux/Windows policy")
         if not isinstance(targets, list) or not targets or any(target not in TARGETS for target in targets):
             raise ValueError("release plan contains an unsupported CI target")
+        arguments = shlex.split(row["dist_args"])
+        selected = []
+        while arguments:
+            argument = arguments.pop(0)
+            if argument == "--target":
+                if not arguments:
+                    raise ValueError("release build has an incomplete target argument")
+                selected.append(arguments.pop(0))
+            elif argument.startswith("--target="):
+                selected.append(argument.partition("=")[2])
+        if sorted(selected) != sorted(targets):
+            raise ValueError("release build arguments differ from the validated matrix targets")
         actual.extend(targets)
     if len(actual) != len(set(actual)) or set(actual) != TARGETS:
         raise ValueError("release plan does not cover the three CI targets exactly once")

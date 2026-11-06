@@ -12,10 +12,23 @@ plan_policy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(plan_policy)
 
 
+def validate_static_workflow(source):
+    # No workflow needs a macOS scheduling literal. Cover scalar, inline and
+    # block lists, including self-hosted labels and matrix values.
+    for line in source.splitlines():
+        if not line.lstrip().startswith("#") and re.search(r"(?i)\bmacos(?:-[\w.]+)?\b", line):
+            raise ValueError("workflow contains a macOS scheduling literal")
+
+
 class CiPlatformTests(unittest.TestCase):
     def test_static_jobs_and_shared_setup_have_no_macos_runners(self):
-        for path in (ROOT / ".github/workflows").glob("*.yaml"):
-            self.assertNotRegex(path.read_text(encoding="utf-8"), r"(?im)^\s*(?:-\s*)?(?:os|runner|runs-on):\s*['\"]?macos")
+        for path in (ROOT / ".github/workflows").iterdir():
+            if path.suffix in {".yaml", ".yml"}:
+                validate_static_workflow(path.read_text(encoding="utf-8"))
+        for source in ("runs-on: macos-26", "runs-on: [self-hosted, macOS]",
+                       "os: [ubuntu-24.04, macos-26]", "runs-on:\n  - self-hosted\n  - macOS"):
+            with self.assertRaises(ValueError):
+                validate_static_workflow(source)
         setup = (ROOT / ".github/actions/test-setup/action.yaml").read_text(encoding="utf-8")
         self.assertNotIn("runner.os == 'macOS'", setup)
         release = (ROOT / ".github/workflows/release.yaml").read_text(encoding="utf-8")
@@ -27,13 +40,15 @@ class CiPlatformTests(unittest.TestCase):
         self.assertIn("python3 .github/tools/verify_ci_dist_plan.py plan-dist-manifest.json", release)
 
     def test_generated_plan_rejects_macos_unknown_missing_and_duplicate_targets(self):
-        rows = [{"runner": "windows-2022" if "windows" in target else "ubuntu-22.04", "targets": [target]}
+        rows = [{"runner": "windows-2022" if "windows" in target else "ubuntu-22.04", "targets": [target],
+                 "dist_args": "--artifacts=local --target=" + target}
                 for target in sorted(plan_policy.TARGETS)]
         valid = {"ci": {"github": {"artifacts_matrix": {"include": rows}}}}
         plan_policy.validate(valid)
         for mutate in (lambda r: r.append({"runner": "macos-26", "targets": ["aarch64-apple-darwin"]}),
                        lambda r: r[0].update(runner="macos-26"), lambda r: r.pop(),
-                       lambda r: r.append(copy.deepcopy(r[0]))):
+                       lambda r: r.append(copy.deepcopy(r[0])),
+                       lambda r: r[0].update(dist_args="--artifacts=local --target=aarch64-apple-darwin")):
             candidate = copy.deepcopy(valid)
             mutate(candidate["ci"]["github"]["artifacts_matrix"]["include"])
             with self.assertRaises(ValueError):
