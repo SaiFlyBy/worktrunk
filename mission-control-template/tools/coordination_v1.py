@@ -662,7 +662,7 @@ def _current(state: dict, args) -> tuple[dict, dict]:
 def release_unlaunched(state: dict, cell_id: str, *, confirmed_no_launch: bool = False) -> None:
     record = state["cells"][cell_id]
     request = record["coordination"]
-    permitted = {"QUEUED", "ADMITTED"} | ({"STOP_CONFIRMED"} if confirmed_no_launch else set())
+    permitted = {"QUEUED", "ADMITTED"} | ({"STOP_CONFIRMED", "RELEASED"} if confirmed_no_launch else set())
     if request["phase"] not in permitted or record.get("result_ref") or request.get("scope_proof_ref"):
         raise ValueError("no-launch recovery requires an unexecuted, nonsettled current generation")
     record["state"] = "COMPILED"

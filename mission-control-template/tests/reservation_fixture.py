@@ -41,7 +41,7 @@ class ReservationProtocol:
             value.update(outcome=outcome, writer_domain_stopped_or_fenced=True)
         elif kind == "no-launch":
             value.update(outcome="NO_LAUNCH", start_not_occurred=True, launch_authority_revoked=True)
-        path = self.root / f"{cell}-{kind}-observation.json"
+        path = self.root / f"{cell}-{reservation['generation']}-{kind}-observation.json"
         lifecycle.write_json(path, value)
         return path, value
 
@@ -60,7 +60,7 @@ class ReservationProtocol:
             more = ["--session-mapping", mapping_path]
         return self.fixture.mc("execution", "running", "--root", self.root, "--observation", path, *more)
 
-    def fence(self, cell, source):
+    def fence(self, cell, source=None):
         record = self.fixture.state()["cells"][cell]
         request = record["coordination"]
         evidence = self.root / "evidence" / f"operator-{cell}-{request['generation']}.json"
@@ -70,16 +70,18 @@ class ReservationProtocol:
                        "cell": cell, "attempt": record["attempt"], "generation": request["generation"], "token": request["token"],
                        "executor_identity": request["executor_identity"], "observer_identity": request["binding"]["verifier_identity"],
                        "termination_confirmed": True, "descendants_fenced": True,
-                       "rationale": "Controlled fixture: writer domain and old launch authority are fenced; retained adapter evidence independently inspected.",
-                       "evidence": [{"ref": evidence.relative_to(self.root).as_posix(), "sha256": lifecycle.sha256(evidence)},
-                                    {"ref": source["record_ref"], "sha256": source["record_sha256"]}]}
+                       "rationale": "Controlled fixture independently proves the exact writer domain and old launch authority are fenced.",
+                       "evidence": [{"ref": evidence.relative_to(self.root).as_posix(), "sha256": lifecycle.sha256(evidence)}]}
+        if source:
+            observation["evidence"].append({"ref": source["record_ref"], "sha256": source["record_sha256"]})
         path = self.root / f"{cell}-{request['generation']}-fence.json"
         lifecycle.write_json(path, observation)
         return self.action("confirm-stop", cell, "--observation", path)
 
     def terminal(self, cell, *, outcome="COMPLETED"):
         path, value = self.observation(cell, "terminal", outcome=outcome)
-        self.fence(cell, value["source_evidence"])
+        if not self.fixture.state()["cells"][cell]["coordination"]["stop_observation_ref"]:
+            self.fence(cell, value["source_evidence"])
         return self.fixture.mc("execution", "terminal", "--root", self.root, "--observation", path)
 
     def receipt_session(self, path: Path, cell: str):

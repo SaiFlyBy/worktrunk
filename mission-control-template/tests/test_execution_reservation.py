@@ -185,7 +185,9 @@ class ReservationLifecycleTests(unittest.TestCase):
         self.action("release", "M000", first, ok=False)
         session_path, session = self.protocol.observation("M000", "session")
         before = self.state_bytes()
-        for change in ({"fence": True}, {"attempt": 2}, {"binding_digest": "f" * 64}, {"launch_intent_id": "wrong-intent"}):
+        for change in ({"fence": True}, {"attempt": 2}, {"binding_digest": "f" * 64}, {"launch_intent_id": "wrong-intent"},
+                       {"source_evidence": {**session["source_evidence"], "record_ref": "evidence/missing-source.json"}},
+                       {"source_evidence": {**session["source_evidence"], "record_sha256": "f" * 64}}):
             lifecycle.write_json(session_path, {**session, **change})
             self.fixture.mc("execution", "running", "--root", self.root, "--observation", session_path, ok=False)
             self.assertEqual(before, self.state_bytes())
@@ -244,12 +246,16 @@ class ReservationLifecycleTests(unittest.TestCase):
         self.assertEqual("RESERVED", self.action("inspect", "M001", queued)["phase"])
         released = self.action("release", "M001", queued)
         self.assertTrue(released["released_without_launch"])
+        self.assertEqual(released, self.action("release", "M001", queued))
         self.relinquish_and_reacquire("M001")
         renewed = self.reserve(second_binding, "intent-M001-renewed")
         self.assertGreater(renewed["fence"], queued["fence"])
         history = self.action("inspect", "M001", queued)
         self.assertFalse(history["current"])
         self.assertTrue(history["released_without_launch"])
+        before = self.state_bytes()
+        self.assertEqual(history, self.action("release", "M001", queued))
+        self.assertEqual(before, self.state_bytes())
         archived = self.fixture.state()["cells"]["M001"]["execution_reservation_history"][0]
         release_path = self.root / archived["prelaunch_release_ref"]
         release_bytes = release_path.read_bytes()
@@ -285,6 +291,17 @@ class ReservationLifecycleTests(unittest.TestCase):
         self.assertEqual({}, released["evidence_hashes"])
         self.assertFalse(released["current"])
         self.relinquish_and_reacquire("M001")
+        late_no_launch = self.reserve(second_binding, "intent-M001-delayed-no-launch")
+        self.action("launching", "M001", late_no_launch, "--executor-identity", "uncertain-no-launch")
+        self.action("unknown", "M001", late_no_launch)
+        self.protocol.fence("M001")
+        self.action("release", "M001", late_no_launch)
+        late_path, late_value = self.protocol.observation("M001", "no-launch")
+        recovered = json.loads(self.fixture.mc("execution", "release-no-launch", "--root", self.root,
+                                              "--observation", late_path).stdout)
+        self.assertEqual("RELEASED_NO_LAUNCH", recovered["phase"])
+        self.assertEqual("COMPILED", recovered["cell_state"])
+        self.assertFalse(recovered["current"])
         failed_reservation = self.reserve(second_binding, "intent-M001-provider-failed")
         replay = json.loads(self.fixture.mc("execution", "release-no-launch", "--root", self.root,
                                           "--observation", no_launch_path).stdout)
@@ -295,6 +312,11 @@ class ReservationLifecycleTests(unittest.TestCase):
         lifecycle.write_json(no_launch_path, no_launch)
         self.action("launching", "M001", renewed, "--executor-identity", "old-session", ok=False)
         self.action("launching", "M001", failed_reservation, "--executor-identity", "provider-failed:M001")
+        self.action("unknown", "M001", failed_reservation)
+        self.protocol.fence("M001")
+        self.action("release", "M001", failed_reservation)
+        # Observations may arrive after a safe release, while this exact current
+        # reservation is still unsettled. No old selector can target a successor.
         self.protocol.running("M001")
         self.protocol.terminal("M001", outcome="FAILED")
         cannot_accept = self.fixture.raw_settle("M001", self.fixture.result("M001"), self.fixture.receipt("M001"), ok=False)

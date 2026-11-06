@@ -97,7 +97,10 @@ matching receipt session and the full reservation selector. No-launch recovery
 requires retained start-not-occurred and launch-authority-revoked evidence, archives
 an immutable replayable receipt and advances only the fence in the same attempt.
 Safe release after launch still requires the independently verified operator
-fence covering exact source evidence and every potential descendant. No provider launcher,
+fence for the exact generation and every potential descendant. Adapter source
+evidence and independent fence evidence are retained and validated separately,
+so delayed observations do not require rewriting the immutable generation fence.
+No provider launcher,
 automatic termination authority or external queue-completion adapter is claimed.
 The full transport binding is retained by digest through scope proof, handoff,
 dependency delivery and independent settlement, alongside lineage reviews.

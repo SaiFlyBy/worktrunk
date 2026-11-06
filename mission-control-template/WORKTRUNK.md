@@ -481,8 +481,10 @@ exact attempt, reservation, fence, digest and launch intent. Retain the adapter'
 source record inside the mission and name its relative path and raw-file hash.
 The trusted adapter must authenticate, parse and correlate that source; an
 authority string or hash alone cannot authenticate it. Terminal evidence also
-requires an independent `execution confirm-stop` fence covering that exact source
-record and the whole writer domain. Failure/cancellation cannot become ACCEPTED.
+requires an independent `execution confirm-stop` fence for that exact generation
+and the whole writer domain. The adapter observation and fence retain their own
+evidence; delayed observations can reconcile a still-current released reservation.
+Failure/cancellation cannot become ACCEPTED.
 
 The worker ContextReceipt must identify the observed provider session. If its
 session namespace differs, supply `running --session-mapping FILE` using
@@ -505,11 +507,13 @@ launch permission and retaining a receipt. After an uncertain launch transition,
 `execution release-no-launch --observation FILE` instead requires the exact
 `NO_LAUNCH_OBSERVATION_SCHEMA_V1.json` contract. Its trusted source must establish
 both that no provider started and that old launch authority cannot start later;
-an independent fence must cover that source. Missing sessions or expired leases
+an independent fence must cover the exact generation and writer domain. Missing sessions or expired leases
 are insufficient. Recovery archives the old reservation and receipt, returns
 COMPILED in the same attempt, and never fabricates worker acceptance. Reserve
 again with a new intent for a new fence. Exact recovery replay returns its immutable
 historical receipt even after a successor exists; conflicting replay fails.
+Repeated prelaunch release also returns its historical receipt without changing
+any successor reservation.
 
 A launched failed attempt requires terminal evidence, independent stop
 confirmation, release and `execution retry`. Historical inspection remains

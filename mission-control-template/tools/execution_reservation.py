@@ -281,7 +281,7 @@ def _validate_retained_observations(api, root: Path, reservation: dict, request:
         if kind == "terminal_observation" and value["outcome"] != reservation.get("terminal_outcome"):
             raise ValueError("retained terminal outcome differs from reservation")
         if kind in {"terminal_observation", "no_launch"}:
-            _require_independent_source_fence(api, root, request, value)
+            _require_independent_fence(request)
     if reservation.get("no_launch_ref") and (request.get("scope_proof_ref") or reservation.get("session_ref")):
         raise ValueError("no-launch reservation contradicts execution evidence")
     if reservation.get("prelaunch_release_ref"):
@@ -300,13 +300,9 @@ def _prelaunch_receipt(reservation: dict) -> dict:
             "launch_intent_id": reservation["launch_intent_id"], "reason": "LAUNCH_PERMISSION_NEVER_GRANTED"}
 
 
-def _require_independent_source_fence(api, root: Path, request: dict, observation: dict) -> None:
+def _require_independent_fence(request: dict) -> None:
     if request["phase"] not in {"STOP_CONFIRMED", "RELEASED"} or not request["stop_observation_ref"]:
         raise ValueError("observation requires independent confirmation that the exact writer domain is stopped or fenced")
-    fence = api.load_json(api.resolve_ref(root, request["stop_observation_ref"]))
-    source = observation["source_evidence"]
-    if {"ref": source["record_ref"], "sha256": source["record_sha256"]} not in fence["evidence"]:
-        raise ValueError("independent fence does not cover this exact retained source evidence")
 
 
 def _store_observation(api, root: Path, reservation: dict, kind: str, value: dict) -> bool:
@@ -343,7 +339,7 @@ def observation(scope: dict, args, kind: str) -> int:
         if reservation.get("session_ref") not in {None, value["session_ref"]}:
             raise ValueError("provider session conflicts with its recorded reservation")
         reservation["session_ref"] = value["session_ref"]
-        frozen = reservation.get("terminal_observation_ref") or request.get("scope_proof_ref") or request["phase"] == "RELEASED"
+        frozen = reservation.get("terminal_observation_ref") or request.get("scope_proof_ref")
         if frozen and (not reservation.get("session_observation_ref") or
                        load_binding(api.resolve_ref(root, reservation["session_observation_ref"])) != value):
             raise ValueError("terminal or settled provider session evidence is immutable")
@@ -368,13 +364,13 @@ def observation(scope: dict, args, kind: str) -> int:
             raise ValueError("terminal outcome conflicts with its recorded observation")
         if reservation.get("terminal_observation_ref") and load_binding(api.resolve_ref(root, reservation["terminal_observation_ref"])) != value:
             raise ValueError("retained provider terminal evidence is immutable")
-        _require_independent_source_fence(api, root, request, value)
+        _require_independent_fence(request)
         reservation["terminal_outcome"] = value["outcome"]
         changed = _store_observation(api, root, reservation, kind, value)
     else:
         if reservation.get("session_ref") or record.get("result_ref") or request.get("scope_proof_ref"):
             raise ValueError("no-launch recovery contradicts recorded provider execution or settlement")
-        _require_independent_source_fence(api, root, request, value)
+        _require_independent_fence(request)
         bound = request["binding"]
         api._coordination().snapshot(bound, bound["workspace"]["base_sha"], bound["workspace"]["base_sha"], clean=True, admission=True)
         _store_observation(api, root, reservation, kind, value)
@@ -419,8 +415,13 @@ def command(scope: dict, args) -> int:
     if args.execution_command in kinds:
         return observation(scope, args, kinds[args.execution_command])
     _, state = api._load_v16(root)
-    record, reservation, request, current = _select(state, args, historical=args.execution_command == "inspect")
+    record, reservation, request, current = _select(state, args, historical=args.execution_command in {"inspect", "release"})
     transition = {}
+    if args.execution_command == "release" and not current:
+        if request["phase"] != "RELEASED":
+            raise ValueError("historical release replay requires an already released exact generation")
+        print(json.dumps(_view(api, root, state, record, reservation, request, current=False), indent=2))
+        return 0
     if args.execution_command == "release" and request["phase"] in {"QUEUED", "ADMITTED"}:
         ref = f"evidence/{args.cell}/attempt-{reservation['attempt']:04d}/reservation-{reservation['generation']}/prelaunch-release.json"
         api.write_immutable_json(root / ref, _prelaunch_receipt(reservation))
