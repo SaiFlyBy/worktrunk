@@ -234,6 +234,7 @@ class CiPolicyTests(unittest.TestCase):
                         block.index('cargo build --locked --bin wt'))
         self.assertIn('python tools/run_template_suite.py --expected-sha "$EXPECTED_CANDIDATE" --require-clean', block)
         self.assertIn('MC_SOURCE_PROOF_REPO="$RUNNER_TEMP/../worktrunk-cell-fixtures/29efd0ffcac21717fd789da2c7020a7e02501e00/', block)
+        self.assertIn('WORKTRUNK_PRIVATE_PROOF="$RUNNER_TEMP/../worktrunk-cell-private-proof/', block)
         self.assertIn('persist-credentials: false', block)
         self.assertNotIn('secrets.', block)
         self.assertNotIn('pull_request_target', workflow)

@@ -177,8 +177,9 @@ source copy under `$RUNNER_TEMP/../worktrunk-cell-fixtures/<source-commit>/<cand
 outside the runner's per-job temporary-directory cleanup.
 Preparation verifies the original repository, commit/tree and sealed byte hashes;
 the job independently checks them again before the complete runner. Credentials
-are not copied into this fixture or granted to the job. Its raw proof logs remain
-outside the public artifact root; the artifact retains candidate/fixture identity,
+are not copied into this fixture or granted to the job. Its raw proof logs persist
+under `$RUNNER_TEMP/../worktrunk-cell-private-proof/<run>-<attempt>`, outside
+per-job cleanup and the public artifact root; the artifact retains candidate/fixture identity,
 layer/command outcomes, timing and log hashes. Required failures still fail the job.
 The focused public-source fallback runs only if the complete proof fails and the
 run has not been cancelled. Long verification steps honor cancellation. The
@@ -205,6 +206,9 @@ matching is conservatively case-insensitive; elsewhere the Git repository's
 `core.ignorecase` contract applies. Do not change filesystem case semantics
 under an active authority. Mixed case semantics inside one worktree are outside
 this capability's supported filesystem contract.
+Declared separators may be normalized, but actual Git path names retain their
+literal bytes. A POSIX file named `owned\outside.py` is outside `owned/`;
+literal backslashes within an actual owned directory remain supported.
 
 `dispatch` records an idempotent request and returns `QUEUED` or `ADMITTED` in
 `phase`. Requests receive a durable increasing order; conflicting **eligible**

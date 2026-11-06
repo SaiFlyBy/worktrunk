@@ -76,10 +76,11 @@ def path_key(path: Path) -> str:
     return os.path.normcase(str(path.resolve()))
 
 
-def _safe_relative(value: str) -> tuple[str, bool]:
+def _safe_relative(value: str, *, normalize_separators: bool = True) -> tuple[str, bool]:
     if not isinstance(value, str) or not value or "\0" in value:
         raise ValueError("scope must be a nonempty literal relative path")
-    value = value.replace("\\", "/")
+    if normalize_separators:
+        value = value.replace("\\", "/")
     directory = value.endswith("/")
     value = value[:-1] if directory else value
     parts = value.split("/")
@@ -106,7 +107,7 @@ def _resolved_relative(repo: Path, value: str) -> str:
     if not result.is_relative_to(repo):
         raise ValueError(f"scope escapes registered workspace through a link: {value!r}")
     relative = result.relative_to(repo).as_posix()
-    _safe_relative(relative)
+    _safe_relative(relative, normalize_separators=False)
     return relative
 
 
@@ -296,7 +297,10 @@ def snapshot(bound: dict, candidate: str, base: str, *, clean: bool, admission: 
                                      git(repo, "ls-files", "--others", "-z").split(b"\0") if part))
     offending = []
     for path in sorted(set(value for group in paths.values() for value in group)):
-        relative, _ = _safe_relative(path)
+        # Git paths already use '/' separators. On POSIX a backslash is a
+        # literal filename byte, so interpreting it as a scope alias can turn
+        # an outside file such as 'owned\\outside.py' into an admitted child.
+        relative, _ = _safe_relative(path, normalize_separators=False)
         resolved = _resolved_relative(repo, relative)
         if live["case_insensitive"]:
             relative, resolved = relative.casefold(), resolved.casefold()

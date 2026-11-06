@@ -74,15 +74,33 @@ class PathOwnershipTests(unittest.TestCase):
             repo = root / "repo"
             repo.mkdir()
             (repo / "src").mkdir()
+            junctions = []
             try:
-                (repo / "alias").symlink_to(repo / "src", target_is_directory=True)
-                (repo / "escape").symlink_to(root, target_is_directory=True)
-            except OSError as exc:
-                self.skipTest(f"filesystem cannot create the symlink fixture: {exc}")
-            self.assertTrue(coord.overlaps(coord.scopes(repo.resolve(), ["alias/a"], False)[0],
-                                           coord.scopes(repo.resolve(), ["src/a"], False)[0]))
-            with self.assertRaises(ValueError):
-                coord.scopes(repo.resolve(), ["escape/new.py"], False)
+                try:
+                    (repo / "alias").symlink_to(repo / "src", target_is_directory=True)
+                    (repo / "escape").symlink_to(root, target_is_directory=True)
+                except OSError as exc:
+                    if os.name != "nt":
+                        self.skipTest(f"filesystem cannot create the symlink fixture: {exc}")
+                    # NTFS junctions exercise the same physical-path boundary
+                    # without changing Windows's symlink privilege setting.
+                    for name, target in (("alias", repo / "src"), ("escape", root)):
+                        link = repo / name
+                        if link.is_symlink():
+                            link.unlink()
+                        result = subprocess.run(["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(target)],
+                                                capture_output=True, text=True)
+                        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+                        junctions.append(link)
+                self.assertTrue(coord.overlaps(coord.scopes(repo.resolve(), ["alias/a"], False)[0],
+                                               coord.scopes(repo.resolve(), ["src/a"], False)[0]))
+                with self.assertRaises(ValueError):
+                    coord.scopes(repo.resolve(), ["escape/new.py"], False)
+            finally:
+                # Remove only the fixture junctions before temporary-directory
+                # cleanup; the directory they reference is never removed here.
+                for link in reversed(junctions):
+                    link.rmdir()
 
 
 class CoordinationLifecycleTests(unittest.TestCase):
@@ -256,6 +274,28 @@ class CoordinationLifecycleTests(unittest.TestCase):
         self.assertIn("moved.py", denied.stderr)
         self.assertIn("README.md", denied.stderr)
         self.assertEqual("LAUNCH_UNCERTAIN", self.request("M000")["phase"])
+
+    @unittest.skipIf(os.name == "nt", "literal backslashes in filenames require POSIX")
+    def test_literal_backslash_git_names_preserve_the_actual_scope_boundary(self):
+        self.compile(paths={"M000": ["owned/"], "M001": ["elsewhere/"], "M002": ["other/"]})
+        self.dispatch("M000")
+        self.launch("M000")
+        repo = self.fixture.target_worktree("M000")
+        (repo / "owned").mkdir()
+        inside = "owned/with" + chr(92) + "literal.py"
+        (repo / inside).write_text("valid owned child\n", encoding="utf-8")
+        allowed = self.commit("M000", [inside])
+        coord.snapshot(self.request("M000")["binding"], allowed, self.fixture.target_base_sha, clean=True)
+        outside = "owned" + chr(92) + "outside.py"
+        self.assertEqual((outside,), Path(outside).parts)
+        (repo / outside).write_text("outside the owned directory\n", encoding="utf-8")
+        candidate = self.commit("M000", [outside])
+        denied = self.settle("M000", candidate=candidate, ok=False)
+        self.assertIn(outside, json.loads(denied.stderr)["offending_paths"])
+        self.assertEqual("DISPATCHED", self.fixture.state()["cells"]["M000"]["state"])
+        self.assertEqual("LAUNCH_UNCERTAIN", self.request("M000")["phase"])
+        self.assertTrue((repo / outside).is_file())
+        self.assertTrue(list((self.root / "evidence/M000/attempt-0001/scope-denials").glob("*.json")))
 
     def test_accepted_candidate_scope_proof_and_stale_publication(self):
         self.compile()
