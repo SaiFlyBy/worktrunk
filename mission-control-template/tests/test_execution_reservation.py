@@ -118,7 +118,16 @@ class ReservationLifecycleTests(unittest.TestCase):
         self.assertEqual([False, True], sorted(value["transitioned"] for value in values))
         self.assertEqual({reservation["reservation_id"]}, {value["reservation_id"] for value in values})
 
+    def relinquish_and_reacquire(self, cell):
+        self.fixture.mc("coordination", "relinquish", "--root", self.root, "--cell", cell,
+                        "--workspace-id", "ws-" + cell)
+        reconciled = self.fixture.mc("workspace", "register", "--root", self.root, "--cell", cell,
+                                    "--workspace-id", "ws-" + cell, "--branch", "mcv6/" + cell.lower(),
+                                    "--path", self.fixture.target_worktree(cell))
+        self.assertTrue(json.loads(reconciled.stdout)["reconciled"])
+
     def test_bound_admission_launch_settlement_release_and_historical_recovery(self):
+        self.relinquish_and_reacquire("M000")  # registered, never reserved
         binding = self.binding("M000")
         for change in ({"claim_generation": True}, {"attempt": 2}, {"workspace_origin": "https://other.invalid/repo"},
                        {"mission_instance_id": "another-instance"}, {"task_id": " task-1"}):
@@ -142,9 +151,8 @@ class ReservationLifecycleTests(unittest.TestCase):
         self.assertEqual(queued, self.reserve(second_binding, "intent-M001"))
         self.assertEqual(binding, self.action("inspect", "M000", first)["binding"])
         # The old coordination/retry entry points must not bypass the transport digest.
-        for action in ("launching", "running", "unknown", "stop", "confirm-stop", "release", "reassess", "relinquish"):
-            more = (["--workspace-id", "ws-M000"] if action == "relinquish" else
-                    ["--generation", first["fence"], "--token", first["reservation_id"]])
+        for action in ("launching", "running", "unknown", "stop", "confirm-stop", "release", "reassess"):
+            more = ["--generation", first["fence"], "--token", first["reservation_id"]]
             if action == "launching":
                 more += ["--executor-identity", "bypass"]
             elif action == "confirm-stop":
@@ -153,6 +161,9 @@ class ReservationLifecycleTests(unittest.TestCase):
             denied = self.fixture.mc("coordination", action, "--root", self.root, "--cell", "M000", *more, ok=False)
             self.assertIn("use execution", denied.stderr)
             self.assertEqual(before, self.state_bytes())
+        held = self.fixture.mc("coordination", "relinquish", "--root", self.root, "--cell", "M000",
+                               "--workspace-id", "ws-M000", ok=False)
+        self.assertIn("unreleased claims", held.stderr)
         # This preflight must happen before creating a worktree or invoking wt.
         before = self.state_bytes()
         worktrees = subprocess.run(["git", "-C", str(self.fixture.target_repo), "worktree", "list", "--porcelain"],
@@ -233,6 +244,7 @@ class ReservationLifecycleTests(unittest.TestCase):
         self.assertEqual("RESERVED", self.action("inspect", "M001", queued)["phase"])
         released = self.action("release", "M001", queued)
         self.assertTrue(released["released_without_launch"])
+        self.relinquish_and_reacquire("M001")
         renewed = self.reserve(second_binding, "intent-M001-renewed")
         self.assertGreater(renewed["fence"], queued["fence"])
         history = self.action("inspect", "M001", queued)
@@ -272,6 +284,7 @@ class ReservationLifecycleTests(unittest.TestCase):
         self.assertEqual("COMPILED", released["cell_state"])
         self.assertEqual({}, released["evidence_hashes"])
         self.assertFalse(released["current"])
+        self.relinquish_and_reacquire("M001")
         failed_reservation = self.reserve(second_binding, "intent-M001-provider-failed")
         replay = json.loads(self.fixture.mc("execution", "release-no-launch", "--root", self.root,
                                           "--observation", no_launch_path).stdout)

@@ -460,13 +460,19 @@ then reserve its full binding. Prepare rejects those flags before creating a
 worktree in this mode.
 
 `execution inspect`, `launching`, `unknown`, `stop`, `confirm-stop`, `release`,
-`retry` and `relinquish` select `--cell`, `--reservation-id`, `--fence` and `--binding-digest`.
+and `retry` select `--cell`, `--reservation-id`, `--fence` and `--binding-digest`.
 `launching` also requires the actual durable `--executor-identity`; only the
 first transition returns `launch_authorized: true`. The transport records its own
 intent before its provider side effect. Lost replies and unknown outcomes never
 authorize a second launch. Direct coordination mutations and ordinary target
 retry cannot bypass these selectors. This runtime starts no provider and supplies
 no automatic termination proof.
+
+Repository-level `coordination relinquish --cell CELL --workspace-id ID` remains
+available after every claim for that repository is released, including a workspace
+never reserved. It checks registered custody and removes the mission's repository
+authority registration; it does not mutate a reservation. Register the exact
+workspace again before this mission requests further admission.
 
 `execution running --observation FILE` records a provider-session observation;
 `execution terminal --observation FILE` records its terminal outcome. Use the

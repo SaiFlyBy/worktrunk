@@ -443,8 +443,7 @@ def command(scope: dict, args) -> int:
         return 0
     if args.execution_command != "inspect":
         delegated = SimpleNamespace(**vars(args), coordination_command=args.execution_command,
-                                    generation=args.fence, token=args.reservation_id,
-                                    workspace_id=reservation["binding"]["workspace_id"])
+                                    generation=args.fence, token=args.reservation_id)
         with contextlib.redirect_stdout(io.StringIO()) as output:
             code = api._coordination().command(scope, delegated)
         if code:
@@ -463,7 +462,7 @@ def command(scope: dict, args) -> int:
 def add_parser(sub, handler) -> None:
     parser = sub.add_parser("execution", help="Bind transport reservations to coordinated target ownership")
     actions = parser.add_subparsers(dest="execution_command", required=True)
-    for action in ("reserve", "inspect", "launching", "running", "terminal", "release-no-launch", "unknown", "stop", "confirm-stop", "release", "retry", "relinquish"):
+    for action in ("reserve", "inspect", "launching", "running", "terminal", "release-no-launch", "unknown", "stop", "confirm-stop", "release", "retry"):
         command = actions.add_parser(action)
         command.add_argument("--root", required=True)
         if action == "reserve":

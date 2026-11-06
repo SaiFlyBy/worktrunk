@@ -144,7 +144,7 @@ def _stable_lock_required(root: Path) -> bool:
 
 def cmd_coordination(args: argparse.Namespace) -> int:
     if (_execution_enabled(Path(args.root).resolve()) and args.coordination_command in
-            {"launching", "running", "unknown", "stop", "confirm-stop", "release", "reassess", "relinquish"}):
+            {"launching", "running", "unknown", "stop", "confirm-stop", "release", "reassess"}):
         raise ValueError("use execution with reservation ID, fence and binding digest for this capable target")
     return _coordination().command(globals(), args)
 
