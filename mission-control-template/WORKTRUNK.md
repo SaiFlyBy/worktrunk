@@ -172,6 +172,18 @@ the source checkout and is not published in this fork. The proof runner still
 requires all four layers and does not turn missing fixture evidence into a
 pass.
 
+The dedicated `cell-candidate` qualification route consumes a private task-owned
+source copy under `$RUNNER_TEMP/worktrunk-cell-fixtures/<source-commit>/<candidate>/source`.
+Preparation verifies the original repository, commit/tree and sealed byte hashes;
+the job independently checks them again before the complete runner. Credentials
+are not copied into this fixture or granted to the job. Its raw proof logs remain
+outside the public artifact root; the artifact retains candidate/fixture identity,
+layer/command outcomes, timing and log hashes. Required failures still fail the job.
+The focused public-source fallback runs only if the complete proof fails. The
+changed-base golden mode runs separately; an already-passing ordinary golden run
+inside the complete proof is reused. Retain private evidence locally before
+removing only task-owned runner inputs.
+
 
 ## Enforceable target-cell coordination
 

@@ -139,7 +139,7 @@ jobs:
         run: |
           test "$(git rev-parse HEAD)" = "$EXPECTED_CANDIDATE"
           test -z "$(git status --porcelain)"
-          mkdir -p "$RUNNER_TEMP/worktrunk-cell-proof"
+          mkdir -p "$RUNNER_TEMP/worktrunk-cell-proof-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           python - <<'PYTHON'
           import json, os, pathlib, subprocess
           keys = ('GITHUB_REPOSITORY', 'GITHUB_REPOSITORY_ID', 'GITHUB_ACTOR', 'GITHUB_ACTOR_ID',
@@ -149,21 +149,47 @@ jobs:
           receipt['candidate_tree'] = subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip()
           receipt['base'] = subprocess.check_output(['git','merge-base','HEAD','origin/main'],text=True).strip()
           receipt['observed_main'] = subprocess.check_output(['git','rev-parse','origin/main'],text=True).strip()
-          pathlib.Path(os.environ['RUNNER_TEMP'], 'worktrunk-cell-proof', 'execution.json').write_text(json.dumps(receipt,indent=2))
+          pathlib.Path(os.environ['RUNNER_TEMP'], f"worktrunk-cell-proof-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}", 'execution.json' ).write_text(json.dumps(receipt,indent=2))
           PYTHON
       - name: Build exact implementation binary
         id: candidate-built
         working-directory: candidate
         run: cargo build --locked --bin wt
       - name: Run complete template proof runner
+        id: canonical-proof
         working-directory: candidate/mission-control-template
         shell: bash
         run: |
-          unset MC_SOURCE_PROOF_REPO
-          export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
-          python tools/run_template_suite.py --expected-sha "$EXPECTED_CANDIDATE" --require-clean --evidence-dir "$RUNNER_TEMP/worktrunk-cell-proof/canonical"
-      - name: Run current-source coordination and bridge regressions
+          export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_NO_LAZY_FETCH=1
+          export MC_SOURCE_PROOF_REPO="$RUNNER_TEMP/worktrunk-cell-fixtures/29efd0ffcac21717fd789da2c7020a7e02501e00/$EXPECTED_CANDIDATE/source"
+          export WORKTRUNK_PRIVATE_PROOF="$RUNNER_TEMP/worktrunk-cell-private-proof/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$WORKTRUNK_PRIVATE_PROOF"
+          python - <<'PYTHON'
+          import hashlib, json, os, pathlib, runpy, subprocess
+          source = pathlib.Path(os.environ['MC_SOURCE_PROOF_REPO']).resolve()
+          provenance = json.loads((source.parent / 'provenance.json').read_text())
+          assert provenance['candidate'] == os.environ['EXPECTED_CANDIDATE']
+          assert provenance['repository'] == 'SaiFlyBy/flybyrefactor'
+          assert provenance['commit'] == '29efd0ffcac21717fd789da2c7020a7e02501e00'
+          assert provenance['tree'] == 'ba0caa7a3fdc1d89ed2afadf0f48713a302e1487'
+          runpy.run_path('tests/source_fixture.py')['source_proof_repo'](pathlib.Path.cwd().parent)
+          assert subprocess.check_output(['git','-C',str(source),'rev-parse','HEAD^{tree}'],text=True).strip() == provenance['tree']
+          expected = {'archive/mission-control-v6/frontier-102/MUTATION_DESCRIPTOR.json': 'a250dd270b016e5e2372f2e5f2ef91095dcf9b8053a66f6241e93358b88a2dfe',
+                      'archive/mission-control-v6/frontier-000/evidence/A000/context_receipt.json': '99df1e82a1cb0738c8cac02320270921b0e292b449d18c68584e2853042412c8'}
+          assert provenance['sealed_checksums'] == expected
+          for relative, checksum in expected.items():
+              assert hashlib.sha256((source / relative).read_bytes()).hexdigest() == checksum
+          PYTHON
+          proof_status=0
+          python tools/run_template_suite.py --expected-sha "$EXPECTED_CANDIDATE" --require-clean --environment-mission-root "$MC_SOURCE_PROOF_REPO/archive/mission-control-v6" --evidence-dir "$WORKTRUNK_PRIVATE_PROOF/canonical" > "$WORKTRUNK_PRIVATE_PROOF/runner.stdout.txt" 2> "$WORKTRUNK_PRIVATE_PROOF/runner.stderr.txt" || proof_status=$?
+          python ../.github/tools/cell_proof_receipt.py --private-root "$WORKTRUNK_PRIVATE_PROOF" --public-root "$RUNNER_TEMP/worktrunk-cell-proof-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/canonical" --candidate "$EXPECTED_CANDIDATE" --provenance "$MC_SOURCE_PROOF_REPO/../provenance.json"
+          exit "$proof_status"
+      - name: Verify qualification route policy
         if: ${{ always() && steps.candidate-bound.outcome == 'success' && steps.candidate-built.outcome == 'success' }}
+        working-directory: candidate
+        run: python .github/tests/ci_policy_test.py
+      - name: Run current-source coordination and bridge regressions
+        if: ${{ always() && steps.candidate-bound.outcome == 'success' && steps.candidate-built.outcome == 'success' && steps.canonical-proof.outcome != 'success' }}
         working-directory: candidate
         shell: bash
         run: |
@@ -172,7 +198,7 @@ jobs:
           python - <<'PYTHON'
           import hashlib, json, os, pathlib, runpy, sys
           root = pathlib.Path.cwd()
-          evidence = pathlib.Path(os.environ['RUNNER_TEMP'], 'worktrunk-cell-proof', 'focused')
+          evidence = pathlib.Path(os.environ['RUNNER_TEMP'], f"worktrunk-cell-proof-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}", 'focused' )
           evidence.mkdir(parents=True, exist_ok=True)
           runner = runpy.run_path(str(root / 'mission-control-template/tools/run_template_suite.py'))
           commands = [
@@ -183,12 +209,12 @@ jobs:
                'ProofRunnerContractSuite.test_03_command_timeout_is_terminal_and_hashed',
                'ProofRunnerContractSuite.test_06_fork_bridge_workflow_tests_current_source',
                'ProofRunnerContractSuite.test_07_manual_candidate_does_not_start_general_bridge',
-               'ProofRunnerContractSuite.test_08_focused_gate_does_not_waive_canonical_failure'],
+               'ProofRunnerContractSuite.test_08_focused_gate_does_not_waive_canonical_failure',
+               'ProofRunnerContractSuite.test_09_private_fixture_logs_are_excluded_from_public_receipts'],
               ['mission-control-template/tests/test_runtime_state_machine.py'],
               ['mission-control-template/tests/test_cell_coordination.py'],
               ['mission-control-template/tests/test_evidence_based_source_qualification.py'],
               ['mission-control-template/tests/test_wt_mission.py'],
-              ['.github/tests/ci_policy_test.py'],
           ]
           results = []
           for index, command in enumerate(commands, 1):
@@ -211,12 +237,14 @@ jobs:
         run: |
           export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
           export WORKTRUNK_MC_TEST_WT="$GITHUB_WORKSPACE/candidate/target/debug/wt"
-          python mission-control-template/tools/test_template_v16.py
+          if [ "${{ steps.canonical-proof.outcome }}" != success ]; then
+            python mission-control-template/tools/test_template_v16.py
+          fi
           WORKTRUNK_MC_TEST_HANDOFF=1 python mission-control-template/tools/test_template_v16.py
       - name: Preserve exact-candidate receipts
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: worktrunk-cell-proof-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/worktrunk-cell-proof
+          path: ${{ runner.temp }}/worktrunk-cell-proof-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error

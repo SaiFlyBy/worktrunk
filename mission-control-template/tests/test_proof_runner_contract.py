@@ -186,10 +186,47 @@ class ProofRunnerContractSuite(unittest.TestCase):
         self.assertNotIn("continue-on-error", candidate)
         self.assertIn('tools/run_template_suite.py --expected-sha "$EXPECTED_CANDIDATE" --require-clean', candidate)
         focused = candidate.split("      - name: Run current-source coordination and bridge regressions", 1)[1].split("      - name:", 1)[0]
-        self.assertIn("always() && steps.candidate-bound.outcome == 'success' && steps.candidate-built.outcome == 'success'", focused)
+        self.assertIn("always() && steps.candidate-bound.outcome == 'success' && steps.candidate-built.outcome == 'success' && steps.canonical-proof.outcome != 'success'", focused)
         self.assertIn("mission-control-template/tests/test_cell_coordination.py", focused)
         self.assertIn("mission-control-template/tests/test_wt_mission.py", focused)
         self.assertIn("sys.exit(any(result['state'] != 'PASS' for result in results))", focused)
+
+
+    def test_09_private_fixture_logs_are_excluded_from_public_receipts(self) -> None:
+        import json
+        module_path = REPO / ".github/tools/cell_proof_receipt.py"
+        spec = importlib.util.spec_from_file_location("cell_proof_receipt", module_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        secret = "PRIVATE-FIXTURE-SENTINEL-MUST-NOT-BE-PUBLISHED"
+        candidate = "a" * 40
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            private = root / "private"
+            canonical = private / "canonical"
+            canonical.mkdir(parents=True)
+            (private / "runner.stdout.txt").write_text(secret)
+            (private / "runner.stderr.txt").write_text(secret)
+            (canonical / "manifest.json").write_text(json.dumps({"observed_head": candidate,
+                "expected_head": candidate, "private_content": secret, "result": "FAIL"}))
+            (canonical / "summary.json").write_text(json.dumps({"state": "FAIL", "error": secret,
+                "layers": [{"layer": "environment_integration", "required": True, "state": "FAIL", "commands": [{
+                    "command": ["python", "tests/test_mission_control.py", "--mission-root", secret],
+                    "state": "FAIL", "exit_code": 1, "private_content": secret, "stdout_sha256": "b" * 64,
+                    "stderr_sha256": "c" * 64}]}]}))
+            provenance = {"repository": "SaiFlyBy/flybyrefactor", "commit": "d" * 40, "tree": "e" * 40,
+                          "sealed_checksums": {}, "private_note": secret}
+            public = root / "public"
+            receipt = module.retain(private, public, candidate, provenance)
+            self.assertEqual("FAIL", receipt["state"])
+            self.assertEqual(1, receipt["layers"][0]["commands"][0]["exit_code"])
+            self.assertEqual(hashlib.sha256(secret.encode()).hexdigest(), receipt["runner_stdout_sha256"])
+            self.assertFalse(receipt["log_contents_published"])
+            self.assertEqual({"manifest.json", "summary.json", "fixture-provenance.json"}, {path.name for path in public.iterdir()})
+            for path in public.iterdir():
+                self.assertNotIn(secret, path.read_text())
+            with self.assertRaises(ValueError):
+                module.retain(private, root / "wrong-head", "f" * 40, provenance)
 
 
 if __name__ == "__main__":

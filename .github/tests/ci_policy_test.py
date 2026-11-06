@@ -214,6 +214,8 @@ class CiPolicyTests(unittest.TestCase):
     def test_cell_qualification_route_is_owner_only_fixed_branch_and_exact_sha(self):
         files = workflows()
         labels = '[self-hosted, Linux, X64, worktrunk-docker]'
+        lint_config = (ROOT / '.github/actionlint.yaml').read_text(encoding='utf-8')
+        self.assertEqual(['worktrunk-docker'], re.findall(r'(?m)^    - (.+)$', lint_config))
         for name, source in files.items():
             if name != 'mission-control-bridge.yaml':
                 self.assertNotIn('self-hosted', source)
