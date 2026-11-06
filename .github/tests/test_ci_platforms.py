@@ -3,9 +3,11 @@ import copy
 import importlib.util
 from pathlib import Path
 import re
+import sys
 import tomllib
 import unittest
 
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("ci_dist_plan", ROOT / ".github/tools/verify_ci_dist_plan.py")
 plan_policy = importlib.util.module_from_spec(spec)
