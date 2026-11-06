@@ -25,6 +25,13 @@ on:
       - '.github/workflows/mission-control-bridge.yaml'
       - '.gitattributes'
   workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact approved head of flyby/cell-enforcement-pro-20261105
+        required: false
+        default: ''
+        type: string
+
 
 permissions:
   contents: read
@@ -35,7 +42,7 @@ concurrency:
 
 jobs:
   bridge:
-    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id) }}
+    if: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.id != null && github.event.pull_request.head.repo.id == github.event.repository.id)) && (github.event_name != 'workflow_dispatch' || inputs.candidate_sha == '') }}
     strategy:
       fail-fast: false
       matrix:
@@ -77,6 +84,7 @@ jobs:
                'ProofRunnerContractSuite.test_03_command_timeout_is_terminal_and_hashed',
                'ProofRunnerContractSuite.test_06_fork_bridge_workflow_tests_current_source'],
               ['tests/test_runtime_state_machine.py'],
+              ['tests/test_cell_coordination.py'],
               ['tests/test_evidence_based_source_qualification.py'],
               ['tests/test_wt_mission.py'],
           ]
@@ -90,3 +98,154 @@ jobs:
           env['WORKTRUNK_MC_TEST_HANDOFF'] = '1'
           subprocess.run(golden, cwd=root, env=env, check=True)
           PYTHON
+
+  cell-candidate:
+    if: ${{ github.repository_id == '1443337118' && github.actor_id == '226779263' && github.triggering_actor == 'SaiFlyBy' && github.event_name == 'workflow_dispatch' && inputs.candidate_sha != '' }}
+    runs-on: [self-hosted, Linux, X64, worktrunk-docker]
+    timeout-minutes: 35
+    env:
+      EXPECTED_CANDIDATE: ${{ inputs.candidate_sha }}
+      CARGO_INCREMENTAL: '0'
+      RUSTFLAGS: -C debuginfo=0
+      PYTHONDONTWRITEBYTECODE: '1'
+      WORKTRUNK_MC_TEST_WT: ${{ github.workspace }}/candidate/target/debug/wt
+      GIT_CONFIG_NOSYSTEM: '1'
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      - name: Check out trusted runner policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Validate requested immutable identity
+        shell: bash
+        run: |
+          [[ "$EXPECTED_CANDIDATE" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$GITHUB_WORKFLOW_SHA"
+      - name: Prepare dedicated Linux runner
+        uses: ./.github/actions/self-hosted-setup
+      - name: Check out fixed implementation branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: SaiFlyBy/worktrunk
+          ref: refs/heads/flyby/cell-enforcement-pro-20261105
+          fetch-depth: 0
+          path: candidate
+          persist-credentials: false
+      - name: Bind candidate and execution receipt
+        id: candidate-bound
+        working-directory: candidate
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_CANDIDATE"
+          test -z "$(git status --porcelain)"
+          mkdir -p "$RUNNER_TEMP/worktrunk-cell-proof-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          python - <<'PYTHON'
+          import json, os, pathlib, subprocess
+          keys = ('GITHUB_REPOSITORY', 'GITHUB_REPOSITORY_ID', 'GITHUB_ACTOR', 'GITHUB_ACTOR_ID',
+                  'GITHUB_TRIGGERING_ACTOR', 'GITHUB_EVENT_NAME', 'GITHUB_WORKFLOW_SHA', 'GITHUB_RUN_ID',
+                  'GITHUB_RUN_ATTEMPT', 'RUNNER_NAME', 'RUNNER_OS', 'RUNNER_ARCH', 'EXPECTED_CANDIDATE')
+          receipt = {key: os.environ.get(key) for key in keys}
+          receipt['candidate_tree'] = subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip()
+          receipt['base'] = subprocess.check_output(['git','merge-base','HEAD','origin/main'],text=True).strip()
+          receipt['observed_main'] = subprocess.check_output(['git','rev-parse','origin/main'],text=True).strip()
+          pathlib.Path(os.environ['RUNNER_TEMP'], f"worktrunk-cell-proof-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}", 'execution.json' ).write_text(json.dumps(receipt,indent=2))
+          PYTHON
+      - name: Build exact implementation binary
+        id: candidate-built
+        working-directory: candidate
+        run: cargo build --locked --bin wt
+      - name: Run complete template proof runner
+        id: canonical-proof
+        working-directory: candidate/mission-control-template
+        shell: bash
+        run: |
+          export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_NO_LAZY_FETCH=1
+          export MC_SOURCE_PROOF_REPO="$RUNNER_TEMP/../worktrunk-cell-fixtures/29efd0ffcac21717fd789da2c7020a7e02501e00/$EXPECTED_CANDIDATE/source"
+          export WORKTRUNK_PRIVATE_PROOF="$HOME/worktrunk-cell-private-proof/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          umask 077
+          mkdir -p "$WORKTRUNK_PRIVATE_PROOF"
+          python - <<'PYTHON'
+          import hashlib, json, os, pathlib, runpy, subprocess
+          source = pathlib.Path(os.environ['MC_SOURCE_PROOF_REPO']).resolve()
+          provenance = json.loads((source.parent / 'provenance.json').read_text())
+          assert provenance['candidate'] == os.environ['EXPECTED_CANDIDATE']
+          assert provenance['repository'] == 'SaiFlyBy/flybyrefactor'
+          assert provenance['commit'] == '29efd0ffcac21717fd789da2c7020a7e02501e00'
+          assert provenance['tree'] == 'ba0caa7a3fdc1d89ed2afadf0f48713a302e1487'
+          runpy.run_path('tests/source_fixture.py')['source_proof_repo'](pathlib.Path.cwd().parent)
+          assert subprocess.check_output(['git','-C',str(source),'rev-parse','HEAD^{tree}'],text=True).strip() == provenance['tree']
+          expected = {'archive/mission-control-v6/frontier-102/MUTATION_DESCRIPTOR.json': 'a250dd270b016e5e2372f2e5f2ef91095dcf9b8053a66f6241e93358b88a2dfe',
+                      'archive/mission-control-v6/frontier-000/evidence/A000/context_receipt.json': '99df1e82a1cb0738c8cac02320270921b0e292b449d18c68584e2853042412c8'}
+          assert provenance['sealed_checksums'] == expected
+          for relative, checksum in expected.items():
+              assert hashlib.sha256((source / relative).read_bytes()).hexdigest() == checksum
+          PYTHON
+          proof_status=0
+          python tools/run_template_suite.py --expected-sha "$EXPECTED_CANDIDATE" --require-clean --environment-mission-root "$MC_SOURCE_PROOF_REPO/archive/mission-control-v6" --evidence-dir "$WORKTRUNK_PRIVATE_PROOF/canonical" > "$WORKTRUNK_PRIVATE_PROOF/runner.stdout.txt" 2> "$WORKTRUNK_PRIVATE_PROOF/runner.stderr.txt" || proof_status=$?
+          python ../.github/tools/cell_proof_receipt.py --private-root "$WORKTRUNK_PRIVATE_PROOF" --public-root "$RUNNER_TEMP/worktrunk-cell-proof-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/canonical" --candidate "$EXPECTED_CANDIDATE" --provenance "$MC_SOURCE_PROOF_REPO/../provenance.json"
+          exit "$proof_status"
+      - name: Verify qualification route policy
+        if: ${{ always() && !cancelled() && steps.candidate-bound.outcome == 'success' && steps.candidate-built.outcome == 'success' }}
+        working-directory: candidate
+        run: python .github/tests/ci_policy_test.py
+      - name: Run current-source coordination and bridge regressions
+        if: ${{ always() && !cancelled() && steps.candidate-bound.outcome == 'success' && steps.candidate-built.outcome == 'success' && steps.canonical-proof.outcome != 'success' }}
+        working-directory: candidate
+        shell: bash
+        run: |
+          unset MC_SOURCE_PROOF_REPO
+          export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+          python - <<'PYTHON'
+          import hashlib, json, os, pathlib, runpy, sys
+          root = pathlib.Path.cwd()
+          evidence = pathlib.Path(os.environ['RUNNER_TEMP'], f"worktrunk-cell-proof-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}", 'focused' )
+          evidence.mkdir(parents=True, exist_ok=True)
+          runner = runpy.run_path(str(root / 'mission-control-template/tools/run_template_suite.py'))
+          commands = [
+              ['mission-control-template/tests/test_reference_fixture_byte_custody.py'],
+              ['mission-control-template/tests/test_proof_runner_contract.py',
+               'ProofRunnerContractSuite.test_01_required_skip_is_blocking',
+               'ProofRunnerContractSuite.test_02_clean_gate_covers_entire_repository',
+               'ProofRunnerContractSuite.test_03_command_timeout_is_terminal_and_hashed',
+               'ProofRunnerContractSuite.test_06_fork_bridge_workflow_tests_current_source',
+               'ProofRunnerContractSuite.test_07_manual_candidate_does_not_start_general_bridge',
+               'ProofRunnerContractSuite.test_08_focused_gate_does_not_waive_canonical_failure',
+               'ProofRunnerContractSuite.test_09_private_fixture_logs_are_excluded_from_public_receipts'],
+              ['mission-control-template/tests/test_runtime_state_machine.py'],
+              ['mission-control-template/tests/test_cell_coordination.py'],
+              ['mission-control-template/tests/test_evidence_based_source_qualification.py'],
+              ['mission-control-template/tests/test_wt_mission.py'],
+          ]
+          results = []
+          for index, command in enumerate(commands, 1):
+              stdout, stderr = evidence / f'{index:02d}.stdout.txt', evidence / f'{index:02d}.stderr.txt'
+              result = runner['execute_command']([sys.executable, *command], cwd=root,
+                  stdout_path=stdout, stderr_path=stderr, timeout_seconds=900)
+              result.update({'stdout': stdout.name, 'stderr': stderr.name})
+              results.append(result)
+              (evidence / 'summary.json').write_text(json.dumps({'candidate': os.environ['EXPECTED_CANDIDATE'],
+                  'commands': results}, indent=2))
+              print(f"{result['state']} rc={result['exit_code']} :: {' '.join(command)}", flush=True)
+              print(stdout.read_text(), end='', flush=True)
+              print(stderr.read_text(), end='', flush=True)
+          sys.exit(any(result['state'] != 'PASS' for result in results))
+          PYTHON
+      - name: Verify ordinary and changed-base bridge lifecycle
+        if: ${{ always() && !cancelled() && steps.candidate-bound.outcome == 'success' && steps.candidate-built.outcome == 'success' }}
+        working-directory: candidate
+        shell: bash
+        run: |
+          export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+          export WORKTRUNK_MC_TEST_WT="$GITHUB_WORKSPACE/candidate/target/debug/wt"
+          if [ "${{ steps.canonical-proof.outcome }}" != success ]; then
+            python mission-control-template/tools/test_template_v16.py
+          fi
+          WORKTRUNK_MC_TEST_HANDOFF=1 python mission-control-template/tools/test_template_v16.py
+      - name: Preserve exact-candidate receipts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: worktrunk-cell-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/worktrunk-cell-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error

@@ -84,6 +84,132 @@ def mc(root: Path, *args: str) -> str:
                            "Mission Control " + " ".join(args[:2]))
 
 
+
+# This child process imports the mission's own sealed runtime in isolation.
+# Its lock gives one coherent observation; it does not reserve a queue claim or
+# authenticate an external provider. The actual settlement remains mc's job.
+_SETTLEMENT_SNAPSHOT = r'''
+import importlib.util
+import json
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1]).resolve()
+cell = sys.argv[2]
+attempt = int(sys.argv[3])
+inputs = [Path(value) for value in sys.argv[4:7]]
+generation, token = sys.argv[7:9]
+runtime = root / "runtime" / "tools" / "mc.py"
+sys.path.insert(0, str(runtime.parent))
+spec = importlib.util.spec_from_file_location("_frozen_mission_runtime", runtime)
+if spec is None or spec.loader is None:
+    raise RuntimeError("Frozen Mission Control runtime cannot be loaded")
+mc = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mc)
+required = ("mission_control_lock", "_doctor_or_fail", "_load_v16",
+            "resolve_ref", "sha256", "load_json")
+missing = [name for name in required if not callable(getattr(mc, name, None))]
+if missing:
+    print("unsupported frozen mission runtime: missing " + ", ".join(missing), file=sys.stderr)
+    sys.exit(2)
+
+def canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+with mc.mission_control_lock(root):
+    if not mc._doctor_or_fail(root):
+        raise RuntimeError("Mission Control cannot validate recorded evidence")
+    _, state = mc._load_v16(root)
+    record = state.get("cells", {}).get(cell)
+    if not isinstance(record, dict) or record.get("attempt") != attempt:
+        raise RuntimeError("Settlement attempt is stale or missing")
+    if record.get("state") not in {"ACCEPTED", "REJECTED", "FAILED", "BLOCKED", "CANDIDATE"}:
+        raise RuntimeError("Settlement has not been recorded")
+    coordination = record.get("coordination")
+    if coordination and (str(coordination.get("generation")) != generation or coordination.get("token") != token):
+        raise RuntimeError("Settlement generation is stale or missing")
+    history = [item for item in record.get("attempt_history", [])
+               if isinstance(item, dict) and item.get("attempt") == attempt]
+    if len(history) != 1 or history[0].get("state") != record["state"]:
+        raise RuntimeError("Settlement history is missing or ambiguous")
+    item = history[0]
+    for identity in ("worker_identity", "verifier_identity"):
+        if not record.get(identity) or record.get(identity) != item.get(identity):
+            raise RuntimeError("Settlement custody differs from attempt history")
+    for prefix, supplied in zip(("result", "context_receipt", "adjudication"), inputs):
+        ref, digest = record.get(prefix + "_ref"), record.get(prefix + "_sha256")
+        if (not isinstance(ref, str) or not isinstance(digest, str)
+                or item.get(prefix + "_ref") != ref or item.get(prefix + "_sha256") != digest):
+            raise RuntimeError("Settlement evidence differs from attempt history")
+        recorded = mc.resolve_ref(root, ref)
+        if (mc.sha256(recorded) != digest
+                or canonical(mc.load_json(recorded)) != canonical(mc.load_json(supplied))):
+            raise RuntimeError("Settlement evidence is different or has changed")
+    print(json.dumps({
+        "state": record["state"], "cell": cell, "attempt": attempt,
+        "result_ref": record["result_ref"],
+        "context_receipt_ref": record["context_receipt_ref"],
+        "adjudication_ref": record["adjudication_ref"],
+        "reconciled": True,
+    }))
+'''
+
+
+def settle_reconciled(args: argparse.Namespace) -> dict:
+    """Submit once and reconcile an identical recorded attempt after an uncertain reply.
+
+    The snapshot is an observation under the frozen Mission Control lock, not
+    authority to complete an ADE task or launch another provider.
+    """
+    root = Path(args.root).resolve()
+    if not re.fullmatch(r"[1-9][0-9]*", str(args.attempt)):
+        raise BridgeError("Settlement attempt must be a positive integer")
+    runtime = root / "runtime" / "tools" / "mc.py"
+    if not runtime.is_file():
+        raise BridgeError(f"Mission runtime is missing: {runtime}")
+    values = [read_json(Path(value).resolve()) for value in
+              (args.result, args.context_receipt, args.adjudication)]
+    # Keep each submitted object stable even if the caller edits its source file
+    # while the mission runtime is validating and recording the evidence.
+    with tempfile.TemporaryDirectory(prefix="wt-mission-settle-") as temp:
+        paths = [Path(temp) / name for name in ("result.json", "receipt.json", "adjudication.json")]
+        for path, value in zip(paths, values):
+            path.write_text(json.dumps(value, sort_keys=True), encoding="utf-8")
+        fence = (["--generation", str(args.generation), "--token", args.token]
+                 if args.generation is not None and args.token is not None else [])
+        proc = run([sys.executable, str(runtime), "settle", "--root", str(root),
+                    "--cell", args.cell, "--attempt", str(args.attempt),
+                    "--result", str(paths[0]), "--context-receipt", str(paths[1]),
+                    "--adjudication", str(paths[2]), *fence])
+        if proc.returncode == 0:
+            try:
+                result = json.loads(proc.stdout)
+            except ValueError as exc:
+                raise BridgeError("Settlement succeeded but its response was unreadable; reconcile before continuing") from exc
+            if (not isinstance(result, dict) or result.get("cell") != args.cell
+                    or result.get("state") not in {"ACCEPTED", "REJECTED", "FAILED", "BLOCKED", "CANDIDATE"}):
+                raise BridgeError("Settlement response did not identify the expected cell; reconcile before continuing")
+            result["attempt"] = int(args.attempt)
+            result["reconciled"] = False
+            return result
+        snapshot = run([sys.executable, "-I", "-c", _SETTLEMENT_SNAPSHOT,
+                        str(root), args.cell, str(args.attempt), *map(str, paths), str(args.generation or ""), str(args.token or "")])
+        if snapshot.returncode:
+            detail = (proc.stderr or proc.stdout).strip()
+            check = (snapshot.stderr or snapshot.stdout).strip()
+            reason = check.splitlines()[-1][:500] if check else ""
+            raise BridgeError("Settlement did not succeed and identical current evidence could not be reconciled"
+                              + (f": {detail}" if detail else "")
+                              + (f"; reconciliation check: {reason}" if reason else ""))
+        try:
+            result = json.loads(snapshot.stdout)
+        except ValueError as exc:
+            raise BridgeError("Settlement reconciliation returned invalid JSON") from exc
+        if not isinstance(result, dict):
+            raise BridgeError("Settlement reconciliation returned an invalid result")
+        return result
+
+
 def cell_info(root: Path, cell_id: str) -> tuple[dict, dict, dict]:
     mc(root, "doctor")
     dag = read_json(root / "control" / "EXECUTION_DAG.json")
@@ -192,11 +318,13 @@ def prepare(args: argparse.Namespace) -> None:
               "path": str(workspace), "base_sha": base}
     if args.worker:
         try:
-            mc(root, "dispatch", "--cell", args.cell, "--workspace-id", args.workspace_id,
-               "--worker-identity", args.worker, "--verifier-identity", args.verifier)
+            assignment = json.loads(mc(root, "dispatch", "--cell", args.cell, "--workspace-id", args.workspace_id,
+               "--worker-identity", args.worker, "--verifier-identity", args.verifier))
         except BridgeError as exc:
             raise BridgeError(f"{exc}; registered workspace was preserved at {workspace}") from exc
-        output["state"] = "DISPATCHED"
+        output["state"] = assignment["state"]
+        if "phase" in assignment:
+            output["coordination"] = assignment
     print(json.dumps(output, indent=2))
 
 
@@ -215,6 +343,7 @@ def scope_report(root: Path, cell_id: str) -> dict:
         "workcell_ref": record.get("workcell_ref"),
         "workcell_sha256": hashlib.sha256(safe_ref(root, record["workcell_ref"]).read_bytes()).hexdigest(),
         "attempt": record.get("attempt"),
+        "coordination": record.get("coordination"),
         "worker_identity": record.get("worker_identity"),
         "verifier_identity": record.get("verifier_identity"),
         "note": "Read-only projection of Mission Control records; not an additional decision or proof of unrecorded checks.",
@@ -380,6 +509,18 @@ def handoff(args: argparse.Namespace) -> None:
                "compiled_base": baseline, "observed_base": observed,
                "merge_base": merge_base, "base_changed_paths": changes,
                "accepted_evidence": evidence}
+    if "contracts/capabilities/cell-coordination-v1.json" in read_json(root / "TEMPLATE_LOCK.json").get("assets", {}):
+        coordination = record.get("coordination", {})
+        scope_base = coordination.get("binding", {}).get("scope_base", baseline)
+        verify_coordination_for_publication(root, args.cell, source, scope_base)
+        if remote_head(repo, "refs/heads/main") != observed:
+            raise BridgeError("Handoff base is not the observed accepted main ref; fetch and reassess")
+        payload["scope_base_observation"] = {
+            "schema": "flyby/mission-control-accepted-base-observation/1",
+            "ref": "refs/heads/main", "sha": observed, "origin": entry["remote_url"],
+            "source_scope_proof_sha256": coordination["scope_proof_sha256"],
+            "source_generation": coordination["generation"], "source_token": coordination["token"],
+        }
     successor = copy.deepcopy(old_cell)
     successor["cell_id"] = args.successor
     successor["dependencies"] = list(dict.fromkeys([*old_cell.get("dependencies", []), args.cell]))
@@ -518,6 +659,11 @@ def verify_publication(repo: Path, gh: str, repository: str, url: str,
     return pr
 
 
+def verify_coordination_for_publication(root: Path, cell: str, candidate: str, base: str) -> None:
+    if "contracts/capabilities/cell-coordination-v1.json" in read_json(root / "TEMPLATE_LOCK.json").get("assets", {}):
+        mc(root, "coordination", "verify", "--cell", cell, "--candidate", candidate, "--publication-base", base)
+
+
 def publish(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
     report = scope_report(root, args.cell)
@@ -557,6 +703,7 @@ def publish(args: argparse.Namespace) -> None:
     ancestry = run(["git", "-C", str(repo), "merge-base", "--is-ancestor", observed_base, candidate])
     if ancestry.returncode:
         raise BridgeError("Cannot verify the current remote base is contained in the accepted head; fetch and reassess the candidate and its evidence")
+    verify_coordination_for_publication(root, args.cell, candidate, observed_base)
     existing = remote_head(repo, branch_ref)
     if existing is not None and existing != candidate:
         raise BridgeError("Remote branch already exists at a different commit; it was not changed")
@@ -584,6 +731,7 @@ def publish(args: argparse.Namespace) -> None:
         # Re-read immediately before upload. The empty expected value is an
         # atomic create-only lease: Git refuses the update if the ref exists,
         # even when a concurrent creator chose an ancestor of the candidate.
+        verify_coordination_for_publication(root, args.cell, candidate, observed_base)
         destination = validate_push_destinations(repo, repository)[0]
         push = push_to_verified_destination(repo, destination, candidate, branch_ref)
         if push.returncode:
@@ -593,6 +741,7 @@ def publish(args: argparse.Namespace) -> None:
         raise BridgeError("Remote branch does not match the accepted head; reconcile before retrying")
     if remote_head(repo, base_ref) != observed_base:
         raise BridgeError("Remote base changed after push; branch preserved, no PR created")
+    verify_coordination_for_publication(root, args.cell, candidate, observed_base)
     create = run([args.gh, "pr", "create", "--repo", repository, "--base", args.base,
                   "--head", workspace["branch"], "--title", args.title,
                   "--body", args.body, "--draft"], cwd=repo)
@@ -630,6 +779,9 @@ def main() -> int:
     settle = sub.add_parser("settle", help="Submit worker and independent verifier evidence")
     for flag in ("root", "cell", "attempt", "result", "context-receipt", "adjudication"):
         settle.add_argument("--" + flag, required=True)
+    settle.add_argument("--generation", type=int)
+    settle.add_argument("--token")
+    settle.add_argument("--reconcile", action="store_true", help="Reconcile an identical previously settled attempt")
     close = sub.add_parser("reconcile", help="Load workspace reconciliation, optionally close")
     close.add_argument("--root", required=True)
     close.add_argument("--file", required=True)
@@ -645,9 +797,13 @@ def main() -> int:
         elif args.command == "publish":
             publish(args)
         elif args.command == "settle":
-            print(mc(Path(args.root).resolve(), "settle", "--cell", args.cell, "--attempt", args.attempt,
-                     "--result", args.result, "--context-receipt", args.context_receipt,
-                     "--adjudication", args.adjudication).strip())
+            if args.reconcile:
+                print(json.dumps(settle_reconciled(args), indent=2))
+            else:
+                print(mc(Path(args.root).resolve(), "settle", "--cell", args.cell, "--attempt", args.attempt,
+                         "--result", args.result, "--context-receipt", args.context_receipt,
+                         "--adjudication", args.adjudication, *(["--generation", str(args.generation), "--token", args.token]
+                     if args.generation is not None and args.token is not None else [])).strip())
         else:
             root = Path(args.root).resolve()
             print(mc(root, "workspace", "load", "--file", args.file).strip())

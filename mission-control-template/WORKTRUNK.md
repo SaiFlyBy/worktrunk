@@ -171,3 +171,124 @@ origin, exact commit and cleanliness before using it. The archive remains in
 the source checkout and is not published in this fork. The proof runner still
 requires all four layers and does not turn missing fixture evidence into a
 pass.
+
+The dedicated `cell-candidate` qualification route consumes a private task-owned
+source copy under `$RUNNER_TEMP/../worktrunk-cell-fixtures/<source-commit>/<candidate>/source`,
+outside the runner's per-job temporary-directory cleanup.
+Preparation verifies the original repository, commit/tree and sealed byte hashes;
+the job independently checks them again before the complete runner. Credentials
+are not copied into this fixture or granted to the job. Its raw proof logs persist
+under `$HOME/worktrunk-cell-private-proof/<run>-<attempt>` with owner-only
+permissions. The verified runner cleans all of `_work`, `.cache` and `.npm`;
+proofs live outside those roots and the public artifact root; the artifact retains candidate/fixture identity,
+layer/command outcomes, timing and log hashes. Required failures still fail the job.
+The focused public-source fallback runs only if the complete proof fails and the
+run has not been cancelled. Long verification steps honor cancellation. The
+changed-base golden mode runs separately; an already-passing ordinary golden run
+inside the complete proof is reused. Retain private evidence locally before
+removing only task-owned runner inputs.
+
+
+## Enforceable target-cell coordination
+
+Initialize a **new** mission with `mc init --mission MISSION.json
+--cell-coordination` to seal `cell-coordination/v1` and execution-state v19.
+Existing frozen missions and their locks are unchanged. A v16 frozen runtime
+does not acquire this protection; bootstrap repair never upgrades its assets.
+
+Declared target paths now participate in admission alongside explicit resource
+claims, conflict classes, and ACCEPTED dependencies. A trailing slash declares
+a directory; an existing directory is also a directory; a nonexistent path
+without a slash is an exact file. `src/a` and `src/ab` are distinct. Exact files do not own descendants, but a file/descendant pair conflicts because Git cannot contain both in one tree. Separators
+are normalized, links must resolve inside the registered workspace, and links
+that alias an owned path conflict. Absolute paths, traversal, Git metadata,
+Windows device/alternate-stream aliases, and glob syntax are rejected. Windows
+matching is conservatively case-insensitive; elsewhere the Git repository's
+`core.ignorecase` contract applies. Do not change filesystem case semantics
+under an active authority. Mixed case semantics inside one worktree are outside
+this capability's supported filesystem contract.
+Declared separators may be normalized, but actual Git path names retain their
+literal bytes. A POSIX file named `owned\outside.py` is outside `owned/`;
+literal backslashes within an actual owned directory remain supported.
+
+`dispatch` records an idempotent request and returns `QUEUED` or `ADMITTED` in
+`phase`. Requests receive a durable increasing order; conflicting **eligible**
+requests use FIFO, with cell identity as the deterministic tie-break. Blocked
+dependencies do not reserve paths. Independent eligible cells use separate
+worktrees concurrently. `coordination status` explains blockers; `coordination
+recover` reassesses eligibility and admits saved requests without launching a
+provider. Repeating a request after a lost reply retains its token and generation.
+Control-only cells keep immediate dispatch and their existing result protocol;
+they cannot bypass a coordinated target's unreleased dependency, resource claim
+or conflict class, including after its result becomes ACCEPTED. Confirming stop
+alone still retains that ownership until explicit release. Independent controls
+can proceed; the target queue also waits for dispatched control claims. Doctor
+rejects mixed dispatch records that bypass these retained target constraints.
+An authority change requires explicit `coordination reassess`, which gives the
+reassessed request a new order and generation. It cannot broaden an active scope.
+
+The control directory is the trusted authority. Capable missions register that
+authority in the target Git common directory before admission. A different
+authority cannot silently govern those same worktrees. After every queued or
+active claim has been safely released, `coordination relinquish` can explicitly
+clear this registration. Separate clones coordinated by the same mission use
+the same target repository identity, but registrations in different clones do
+not constitute a universal repository lock. All participating writers must use
+the same Mission Control authority and protocol. Unmanaged processes can still
+edit files. Architectural coupling across disjoint files needs explicit shared
+resources or dependencies; path ownership cannot infer it.
+
+Admission permits the launch protocol, not an unrecorded writer. Before starting
+an external worker, record `coordination launching --cell CELL --generation N
+--token TOKEN --executor-identity PROVIDER_SESSION_OR_RUN`. Only its first
+transition returns `launch_authorized: true`. A replay is observation, never
+permission to launch again. The executor identity is a durable run/session
+identity, not a reusable PID. A lost launch reply stays uncertain. `running`,
+`unknown`, and `stop` record observations or a stop request; they do not claim
+the provider was launched, cancelled, or terminated by Mission Control.
+
+Settlement of a coordinated target requires `--generation N --token TOKEN`,
+including through `wt_mission settle --reconcile`. Mission Control independently
+reads committed, staged, unstaged and all untracked Git paths, including ignored
+untracked paths. Both sides of moves are checked with rename detection disabled.
+It binds the scope proof to the exact candidate commit/tree, registered base,
+workspace, scope and custody. Acceptance requires a clean candidate. Out-of-scope
+changes are rejected with path-specific evidence under `scope-denials`; the
+workspace and claims remain recoverable. The existing changed-base handoff records an exact accepted-main observation,
+checks the safely released source and binds its evidence into the immutable
+successor contract. Its scope proof uses that observed base, while retaining
+the original registered base and requiring both source and observed heads as
+ancestors. Inherited accepted-main changes are excluded from the cell diff;
+new out-of-scope changes are still rejected.
+
+Receiving either a successful or failed result does **not** release ownership.
+This capability has no qualified provider-tree termination API and reports
+`termination_supported: false`. Heartbeat loss, timeout, cancellation and parent
+exit leave a launched attempt held. An independent trusted operator must first
+stop/fence the exact executor and every possible descendant using a qualified
+facility outside this runtime. Record that observation with `coordination
+confirm-stop --observation FILE`; the versioned observation binds the current
+generation/token, executor, independent verifier and hashed evidence. This is an
+explicit operator safety premise, not automatic OS-level proof. If that premise
+cannot be established, retain UNKNOWN custody and do not release or retry.
+`coordination release` then releases the confirmed claim; repeat confirmation,
+release and recovery are idempotent. An unlaunched queued/admitted request can
+be released without pretending that any provider executed. Retry cannot reuse
+an unreleased attempt, and stale tokens cannot settle or control a newer one.
+
+The bridge rechecks accepted Git scope and writer termination before public
+push/PR creation, including the candidate diff against live publication base.
+It preserves immutable-commit pushes, destination checks, exact-base ancestry,
+create-only refs and ambiguous-outcome reconciliation. These gates prevent
+unauthorized managed promotion; they do not sandbox arbitrary external writers.
+Transactions use short mission-local OS locks and fsynced atomic state writes;
+they never hold a development-wide lock for a worker's lifetime. Filesystem
+power-loss guarantees still depend on the platform. Immutable evidence precedes
+state transitions so interrupted settlements can reconcile their exact inputs.
+
+
+After a safely released failed attempt, retry still requires a clean registered
+base. Preserve a failed candidate on its own ref before preparing that base, or
+compile an explicit successor. Recovery never resets or cleans a worker's
+checkout. Historical scope and fence evidence stays hash-checked across retries;
+changing underlying operator evidence blocks further authority transitions.

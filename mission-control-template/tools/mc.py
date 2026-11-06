@@ -29,6 +29,8 @@ TEMPLATE_SCHEMA = "flyby/mission-control-template/16"
 MISSION_SCHEMA = "flyby/mission-control-mission/16"
 RESULT_SCHEMA = "flyby/mission-control-result/16"
 STATE_SCHEMA = "flyby/mission-control-execution-state/16"
+COORDINATION_SCHEMA = "flyby/mission-control-execution-state/19"
+COORDINATION_CAPABILITY = "contracts/capabilities/cell-coordination-v1.json"
 DAG_SCHEMA = "flyby/mission-control-execution-dag/16"
 AUTHORITY_SCHEMA = "flyby/mission-control-authority/16"
 FRONTIER_SCHEMA = "flyby/mission-control-frontier/16"
@@ -64,6 +66,7 @@ WINDOWS_RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range
 GENERATED_ASSET_ROOTS = (
     "contracts/schemas",
     "contracts/policies",
+    "contracts/capabilities",
     "runtime/tools",
     "runtime/tests",
 )
@@ -72,8 +75,42 @@ GENERATED_ASSET_ROOTS = (
 def _safe_scope_path(value: str) -> bool:
     if not value or value.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", value):
         return False
-    normalized = value.replace("\\", "/")
-    return all(segment not in {"", ".", ".."} for segment in normalized.split("/"))
+    normalized = value.replace("\\", "/").removesuffix("/")
+    return bool(normalized) and all(segment not in {"", ".", ".."} for segment in normalized.split("/"))
+
+
+def _coordination_enabled(root: Path) -> bool:
+    try:
+        return COORDINATION_CAPABILITY in load_json(root / "TEMPLATE_LOCK.json").get("assets", {})
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def _coordination():
+    if not (TOOLS_DIR / "coordination_v1.py").is_file():
+        raise ValueError("frozen runtime lacks cell-coordination/v1; initialize a new capable mission")
+    import coordination_v1
+    return coordination_v1
+
+
+def _stable_lock_required(root: Path) -> bool:
+    if _coordination_enabled(root) or (root / COORDINATION_CAPABILITY).exists():
+        return True
+    try:
+        return load_json(root / "control/EXECUTION_STATE.json").get("schema") == COORDINATION_SCHEMA
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def cmd_coordination(args: argparse.Namespace) -> int:
+    return _coordination().command(globals(), args)
+
+
+def _require_released(state: dict[str, Any]) -> None:
+    held = [cell for cell, record in state.get("cells", {}).items()
+            if record.get("coordination", {}).get("phase") not in {None, "RELEASED"}]
+    if held:
+        raise ValueError(f"target ownership is not safely released: {held}")
 
 
 def generated_asset_files(root: Path) -> dict[str, Path]:
@@ -93,12 +130,13 @@ def generated_asset_files(root: Path) -> dict[str, Path]:
 
 
 @contextlib.contextmanager
-def mission_control_lock(root: Path, timeout_seconds: float = 30.0):
+def mission_control_lock(root: Path, timeout_seconds: float = 30.0, *, stable: bool = False):
     resolved = root.resolve()
     lock_dir = Path(tempfile.gettempdir()) / "flyby-mission-control-locks"
     lock_dir.mkdir(parents=True, exist_ok=True)
     key = hashlib.sha256(os.path.normcase(str(resolved)).encode("utf-8")).hexdigest()
-    lock_path = lock_dir / f"{key}.lock"
+    lock_path = (resolved / ".mission-control-execution.lock"
+                 if stable or _stable_lock_required(resolved) else lock_dir / f"{key}.lock")
     handle = lock_path.open("a+b")
     if lock_path.stat().st_size == 0:
         handle.write(b"\0")
@@ -149,15 +187,29 @@ def load_json(path: Path) -> dict[str, Any]:
 
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    descriptor, temporary = tempfile.mkstemp(prefix=".mc-write-", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+            json.dump(value, stream, indent=2, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        if os.name != "nt":
+            directory = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def write_immutable_json(path: Path, value: dict[str, Any]) -> None:
     if path.exists():
         existing = load_json(path)
-        if existing != value:
+        if canonical_json_sha256(existing) != canonical_json_sha256(value):
             raise ValueError(f"immutable evidence conflict at {path}")
         return
     write_json(path, value)
@@ -1067,8 +1119,17 @@ def _collect_v16_issues(root: Path) -> list[dict[str, str]]:
 
     for error in schema_errors(root, "contracts/schemas/MISSION_SCHEMA.json", spec):
         out.append(issue("MC0160", f"MISSION.json schema violation: {error}", "MISSION.json violates the canonical author-input schema", "correct MISSION.json and rerun doctor"))
-    for error in schema_errors(root, "contracts/schemas/EXECUTION_STATE_SCHEMA.json", state):
+    has_coordination = COORDINATION_CAPABILITY in lock.get("assets", {})
+    state_schema_ref = "contracts/schemas/EXECUTION_STATE_SCHEMA_V19.json" if has_coordination else "contracts/schemas/EXECUTION_STATE_SCHEMA.json"
+    state_errors = schema_errors(root, state_schema_ref, state)
+    for error in state_errors:
         out.append(issue("MC0162", f"execution-state schema violation: {error}", "mutable execution state is malformed", "restore or repair execution state before any transition"))
+    if has_coordination and not state_errors:
+        try:
+            for error in _coordination().issues(globals(), root, state, dag):
+                out.append(issue("MC0410", error, "coordination authority or evidence diverged", "restore exact custody and reconcile the current generation; do not relaunch"))
+        except (OSError, ValueError) as exc:
+            out.append(issue("MC0410", str(exc), "capability runtime unavailable", "restore the exact locked capability assets"))
     for schema_ref, value, code, label in (
         ("contracts/schemas/TEMPLATE_LOCK_SCHEMA.json", lock, "MC0221", "TEMPLATE_LOCK"),
         ("contracts/schemas/CURRENT_AUTHORITY_SCHEMA.json", current, "MC0222", "CURRENT_AUTHORITY"),
@@ -1813,7 +1874,8 @@ def _collect_v16_issues(root: Path) -> list[dict[str, str]]:
     if missing_frontier_provenance:
         out.append(issue("MC0236", f"canonical cells lack source frontier provenance: {missing_frontier_provenance}", "DAG contains cells that cannot be traced to a stored compiler input", "restore each cell's immutable source frontier"))
 
-    if state.get("schema") != STATE_SCHEMA or state.get("mission_id") != mid:
+    expected_state_schema = COORDINATION_SCHEMA if has_coordination else STATE_SCHEMA
+    if state.get("schema") != expected_state_schema or state.get("mission_id") != mid:
         out.append(issue("MC0175", "execution state schema/mission mismatch", "state belongs to a different mission/revision", "regenerate execution state"))
     lifecycle = state.get("lifecycle")
     if lifecycle not in LIFECYCLE:
@@ -2257,7 +2319,7 @@ def _template_root_from_source_cli() -> Path:
     return root
 
 
-def _template_provenance(template_root: Path) -> dict[str, str | None]:
+def _template_provenance(template_root: Path, *, coordination: bool = False) -> dict[str, str | None]:
     try:
         commit_proc = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=template_root, check=True, capture_output=True, text=True,
@@ -2273,7 +2335,7 @@ def _template_provenance(template_root: Path) -> dict[str, str | None]:
         )
         repo_root = Path(repo_proc.stdout.strip()).resolve()
         sources = [template_root / "TEMPLATE.json"] + [
-            source for source, _ in _template_asset_pairs(template_root, template_root)
+            source for source, _ in _template_asset_pairs(template_root, template_root, coordination=coordination)
         ]
         relative_sources = [source.resolve().relative_to(repo_root).as_posix() for source in sources]
         tracked_proc = subprocess.run(
@@ -2318,7 +2380,7 @@ def _template_provenance(template_root: Path) -> dict[str, str | None]:
         }
 
 
-def _template_asset_pairs(template_root: Path, root: Path) -> list[tuple[Path, Path]]:
+def _template_asset_pairs(template_root: Path, root: Path, *, coordination: bool = False) -> list[tuple[Path, Path]]:
     pairs: list[tuple[Path, Path]] = []
     for source_dir, destination_dir in (
         (template_root / "schemas", root / "contracts" / "schemas"),
@@ -2326,7 +2388,14 @@ def _template_asset_pairs(template_root: Path, root: Path) -> list[tuple[Path, P
     ):
         for source in sorted(source_dir.rglob("*")):
             if source.is_file():
+                if source.name in {"EXECUTION_STATE_SCHEMA_V19.json", "FENCE_OBSERVATION_SCHEMA_V1.json"} and not coordination:
+                    continue
                 pairs.append((source, destination_dir / source.relative_to(source_dir)))
+    if coordination:
+        pairs.extend((
+            (template_root / "capabilities/cell-coordination-v1.json", root / COORDINATION_CAPABILITY),
+            (template_root / "tools/coordination_v1.py", root / "runtime/tools/coordination_v1.py"),
+        ))
     pairs.extend((
         (template_root / "tools" / "mc.py", root / "runtime" / "tools" / "mc.py"),
         (template_root / "tools" / "wt_mission.py", root / "runtime" / "tools" / "wt_mission.py"),
@@ -2336,9 +2405,9 @@ def _template_asset_pairs(template_root: Path, root: Path) -> list[tuple[Path, P
     return pairs
 
 
-def _copy_assets(template_root: Path, root: Path) -> list[str]:
+def _copy_assets(template_root: Path, root: Path, *, coordination: bool = False) -> list[str]:
     copied: list[str] = []
-    for source, destination in _template_asset_pairs(template_root, root):
+    for source, destination in _template_asset_pairs(template_root, root, coordination=coordination):
         if not source.is_file():
             raise FileNotFoundError(f"template asset missing: {source}")
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -2397,7 +2466,8 @@ def cmd_init(args: argparse.Namespace) -> int:
         return 1
     for rel in ("control", "corpus", "contracts/schemas", "contracts/policies", "runtime/tools", "runtime/tests", "frontiers/F000", "evidence", "handoff"):
         (root / rel).mkdir(parents=True, exist_ok=True)
-    copied = _copy_assets(template_root, root)
+    coordination = bool(getattr(args, "cell_coordination", False))
+    copied = _copy_assets(template_root, root, coordination=coordination)
     target_map = {t["repository"]: t["baseline_sha"].lower() for t in spec["target_repositories"]}
     current = {
         "schema": AUTHORITY_SCHEMA,
@@ -2427,6 +2497,12 @@ def cmd_init(args: argparse.Namespace) -> int:
         "cells": state_cells,
         "frontier": {"compiled": [], "dispatched": [], "accepted": []},
     }
+    if coordination:
+        import uuid
+        state["schema"] = COORDINATION_SCHEMA
+        state["coordination"] = {"schema": "flyby/mission-control-coordination/1",
+                                  "instance_id": str(uuid.uuid4()), "authority_root": str(root),
+                                  "next_order": 0, "history": []}
     compiler = {
         "schema": "flyby/mission-control-compiler-control/16",
         "mission_id": spec["mission_id"],
@@ -2499,7 +2575,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     write_json(root / "TEMPLATE_LOCK.json", {
         "schema": "flyby/mission-control-template-lock/16",
         "template_schema": TEMPLATE_SCHEMA,
-        **_template_provenance(template_root),
+        **_template_provenance(template_root, coordination=coordination),
         "source_template_root": "mission-control-template",
         "assets": assets,
     })
@@ -2673,6 +2749,19 @@ def cmd_workspace_register(args: argparse.Namespace) -> int:
         print(f"cell {args.cell} has no target workspace authority", file=sys.stderr)
         return 1
     record = state.get("cells", {}).get(args.cell, {})
+    if _coordination_enabled(root):
+        prior_ledger = load_json(root / "control/WORKSPACE_LEDGER.json")
+        prior = [item for item in prior_ledger.get("entries", []) if item.get("workspace_id") == workspace_id]
+        if prior:
+            expected = {"kind": "TARGET", "registered_cell": args.cell, "repository": target.get("repository"),
+                        "base_sha": str(target.get("base_sha", "")).lower(), "branch": branch,
+                        "worktree_path": str(Path(args.path).resolve()) if args.path else None}
+            if len(prior) != 1 or any(prior[0].get(key) != value for key, value in expected.items()):
+                raise ValueError("workspace id already belongs to different registered custody")
+            _coordination().register(globals(), root, state, prior[0])
+            print(json.dumps({"state": "WORKSPACE_REGISTERED", "workspace_id": workspace_id,
+                              "cell": args.cell, "reconciled": True}, indent=2))
+            return 0
     if record.get("state") != "COMPILED":
         print(f"cell {args.cell} must be COMPILED before target workspace registration", file=sys.stderr)
         return 1
@@ -2741,7 +2830,7 @@ def cmd_workspace_register(args: argparse.Namespace) -> int:
         remote_url_val = None
 
     original = ledger_path.read_bytes()
-    entries.append({
+    entry = {
         "workspace_id": workspace_id,
         "kind": "TARGET",
         "repository": repository,
@@ -2753,7 +2842,10 @@ def cmd_workspace_register(args: argparse.Namespace) -> int:
         "dirty": dirty_val,
         "semantic_status_sha256": status_sha_val,
         "remote_url": remote_url_val,
-    })
+    }
+    if _coordination_enabled(root):
+        _coordination().register(globals(), root, state, entry)
+    entries.append(entry)
     ledger["entries"] = entries
     write_json(ledger_path, ledger)
     problems = collect_mission_issues(root)
@@ -3355,6 +3447,8 @@ def cmd_retry(args: argparse.Namespace) -> int:
     if not isinstance(record.get("workcell_ref"), str):
         print(f"cell {args.cell} has no immutable workcell to retry", file=sys.stderr)
         return 1
+    if _coordination_enabled(root):
+        _coordination().retry(globals(), root, state, args.cell)
     record["attempt"] = int(record.get("attempt", 1)) + 1
     record.setdefault("attempt_history", [])
     record["state"] = "COMPILED"
@@ -3385,6 +3479,8 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     if cell["kind"] == "BARRIER":
         print("barriers are crossed with `mc barrier accept`, not dispatched", file=sys.stderr)
         return 1
+    if _coordination_enabled(root) and isinstance(cell.get("target"), dict):
+        return _coordination().dispatch(globals(), args)
     allowed_lifecycles = _PHASE_LIFECYCLES[_cell_phase(dag, args.cell)]
     if state["lifecycle"] not in allowed_lifecycles:
         print(f"cell {args.cell} dispatch blocked from lifecycle {state['lifecycle']}", file=sys.stderr)
@@ -3408,6 +3504,11 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     for dep in cell.get("dependencies", []):
         if state["cells"].get(dep, {}).get("state") != "ACCEPTED":
             print(f"dependency {dep} is not ACCEPTED", file=sys.stderr)
+            return 1
+    if _coordination_enabled(root):
+        blockers = _coordination().control_dispatch_blockers(dag, state, cell)
+        if blockers:
+            print(f"cell {args.cell} blocked by retained target ownership: {blockers}", file=sys.stderr)
             return 1
     target = cell.get("target")
     workspace_id = str(args.workspace_id).strip() if args.workspace_id is not None else ""
@@ -3503,6 +3604,9 @@ def cmd_settle(args: argparse.Namespace) -> int:
         print(json.dumps({"state": "REJECTED", "errors": errors}, indent=2), file=sys.stderr)
         return 1
 
+    scope_proof = None
+    if _coordination_enabled(root):
+        scope_proof = _coordination().settlement(globals(), root, state, args.cell, result, args)
     attempt_id = f"attempt-{current_attempt:04d}"
     evidence_root = root / "evidence" / args.cell / attempt_id
     result_path = evidence_root / "result.json"
@@ -3584,6 +3688,8 @@ def cmd_settle(args: argparse.Namespace) -> int:
         records.append(binding)
         residency["records"] = records
         write_json(root / "control" / "SESSION_RESIDENCY.json", residency)
+    if _coordination_enabled(root):
+        _coordination().record_settlement(globals(), root, state, args.cell, scope_proof)
     _save_state(root, state)
     print(json.dumps({
         "state": state_name,
@@ -3610,6 +3716,11 @@ def _accept_barrier(root: Path, cell_id: str) -> tuple[bool, str | None]:
     missing = [dep for dep in cell.get("dependencies", []) if state["cells"].get(dep, {}).get("state") != "ACCEPTED"]
     if missing:
         return False, f"barrier {cell_id} blocked; dependencies not ACCEPTED: {missing}"
+    if _coordination_enabled(root):
+        held = [dep for dep in cell.get("dependencies", [])
+                if state["cells"].get(dep, {}).get("coordination", {}).get("phase") not in {None, "RELEASED"}]
+        if held:
+            return False, f"barrier dependencies retain writer ownership: {held}"
     state["cells"][cell_id] = {"state": "ACCEPTED"}
     accepted = set(state["frontier"]["accepted"])
     accepted.add(cell_id)
@@ -3968,6 +4079,8 @@ def cmd_integrate(args: argparse.Namespace) -> int:
     if not _doctor_or_fail(root):
         return 1
     dag, state = _load_v16(root)
+    if _coordination_enabled(root):
+        _require_released(state)
     if state["lifecycle"] != "MUTATION_READY":
         print(f"integration requires MUTATION_READY, got {state['lifecycle']}", file=sys.stderr)
         return 1
@@ -4076,6 +4189,8 @@ def cmd_close(args: argparse.Namespace) -> int:
         return 1
     spec = load_json(root / "MISSION.json")
     _, state = _load_v16(root)
+    if _coordination_enabled(root):
+        _require_released(state)
     if state["lifecycle"] != "ACCEPTED":
         print("mission can close only from ACCEPTED", file=sys.stderr)
         return 1
@@ -4207,7 +4322,8 @@ def cmd_repair_bootstrap(args: argparse.Namespace) -> int:
         print("template root unavailable; pass --template-root", file=sys.stderr)
         return 1
 
-    asset_pairs = _template_asset_pairs(template_root, root)
+    coordination = _coordination_enabled(root)
+    asset_pairs = _template_asset_pairs(template_root, root, coordination=coordination)
     lock_path = root / "TEMPLATE_LOCK.json"
     source_assets = {
         destination.relative_to(root).as_posix(): sha256(source)
@@ -4259,7 +4375,7 @@ def cmd_repair_bootstrap(args: argparse.Namespace) -> int:
     top_level_dirs = {name: (root / name).exists() for name in ("contracts", "runtime")}
 
     try:
-        copied = _copy_assets(template_root, root)
+        copied = _copy_assets(template_root, root, coordination=coordination)
         for path in unlocked_generated:
             path.unlink(missing_ok=True)
         write_json(lock_path, existing_lock)
@@ -4301,6 +4417,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     init = sub.add_parser("init")
     init.add_argument("--mission", required=True)
+    init.add_argument("--cell-coordination", action="store_true", help="enable durable target ownership for a new mission")
     init.set_defaults(func=cmd_init)
     for name, func in (("doctor", cmd_doctor), ("status", cmd_status), ("integrate", cmd_integrate), ("close", cmd_close), ("test", cmd_test)):
         p = sub.add_parser(name)
@@ -4361,6 +4478,7 @@ def build_parser() -> argparse.ArgumentParser:
     dispatch.add_argument("--worker-identity", required=True)
     dispatch.add_argument("--verifier-identity", required=True)
     dispatch.add_argument("--workspace-id")
+    dispatch.add_argument("--request-id", help="stable idempotent admission request identity")
     dispatch.set_defaults(func=cmd_dispatch)
     settle = sub.add_parser("settle")
     settle.add_argument("--root", required=True)
@@ -4369,6 +4487,8 @@ def build_parser() -> argparse.ArgumentParser:
     settle.add_argument("--result", required=True)
     settle.add_argument("--context-receipt", required=True)
     settle.add_argument("--adjudication", required=True)
+    settle.add_argument("--generation", type=int)
+    settle.add_argument("--token")
     settle.set_defaults(func=cmd_settle)
     compile_cmd = sub.add_parser("compile")
     compile_cmd.add_argument("--root", required=True)
@@ -4384,6 +4504,8 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--root", required=True)
     bootstrap.add_argument("--template-root")
     bootstrap.set_defaults(func=cmd_repair_bootstrap)
+    if (TOOLS_DIR / "coordination_v1.py").is_file():
+        _coordination().add_parser(sub, cmd_coordination)
     return parser
 
 
@@ -4397,9 +4519,21 @@ def main(argv: Iterable[str] | None = None) -> int:
     else:
         return int(args.func(args))
     try:
-        with mission_control_lock(root):
+        capable_init = args.command == "init" and bool(getattr(args, "cell_coordination", False))
+        if capable_init and any((parent / ".git").exists() for parent in (root, *root.parents)):
+            raise ValueError("coordination authority must be outside target Git worktrees")
+        if capable_init and any((root / name).exists() for name in
+                                ("TEMPLATE_LOCK.json", "control", "runtime", "contracts", "corpus", "frontiers", "evidence", "handoff")):
+            raise ValueError("mission root already contains frozen assets; initialize a fresh capable mission")
+        if args.command == "test" and _coordination_enabled(root):
+            # Tests do not own the admission transaction for their lifetime.
+            with mission_control_lock(root):
+                if not _doctor_or_fail(root):
+                    return 1
             return int(args.func(args))
-    except TimeoutError as exc:
+        with mission_control_lock(root, stable=capable_init):
+            return int(args.func(args))
+    except (TimeoutError, ValueError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
 

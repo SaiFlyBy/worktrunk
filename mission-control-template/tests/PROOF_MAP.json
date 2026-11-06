@@ -56,6 +56,9 @@
     "legacy_mcv6_compatibility": {
       "unit_regression": ["tests/test_legacy_fixture_byte_custody.py"],
       "environment_integration": ["tests/test_mission_control.py"]
+    },
+    "enforceable_cell_coordination": {
+      "e2e": ["tests/test_cell_coordination.py", "tests/test_runtime_state_machine.py", "tests/test_wt_mission.py"]
     }
   }
 }

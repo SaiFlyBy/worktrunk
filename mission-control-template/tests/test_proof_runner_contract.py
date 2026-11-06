@@ -136,12 +136,97 @@ class ProofRunnerContractSuite(unittest.TestCase):
         self.assertIn("WORKTRUNK_MC_TEST_HANDOFF", workflow)
         self.assertIn("ubuntu-24.04", workflow)
         self.assertIn("windows-2025", workflow)
-        self.assertNotIn("self-hosted", workflow)
+        self.assertIn("runs-on: [self-hosted, Linux, X64, worktrunk-docker]", workflow)
+        self.assertIn("ref: refs/heads/flyby/cell-enforcement-pro-20261105", workflow)
         self.assertNotIn("secrets.", workflow)
         actions = re.findall(r"^\s*uses:\s*([^\s#]+)", workflow, flags=re.MULTILINE)
         self.assertTrue(actions)
         for action in actions:
-            self.assertRegex(action, r"@[0-9a-f]{40}$", action)
+            if action == "./.github/actions/self-hosted-setup":
+                setup = (REPO / ".github/actions/self-hosted-setup/action.yaml").read_text(encoding="utf-8")
+                for nested in re.findall(r"^\s*uses:\s*([^\s#]+)", setup, flags=re.MULTILINE):
+                    self.assertRegex(nested, r"@[0-9a-f]{40}$", nested)
+            else:
+                self.assertRegex(action, r"@[0-9a-f]{40}$", action)
+
+
+    def test_07_manual_candidate_does_not_start_general_bridge(self) -> None:
+        workflow = (REPO / ".github" / "workflows" / "mission-control-bridge.yaml").read_text(encoding="utf-8")
+        bridge = workflow.split("  bridge:\n", 1)[1].split("    strategy:", 1)[0]
+        condition = re.search(r"if: \$\{\{ (.+) \}\}", bridge).group(1)
+        replacements = {
+            "github.event.pull_request.head.repo.id": "head_repo",
+            "github.event.repository.id": "repository",
+            "github.event_name": "event",
+            "inputs.candidate_sha": "candidate",
+        }
+        for source, name in replacements.items():
+            condition = condition.replace(source, name)
+        condition = condition.replace("&&", " and ").replace("||", " or ").replace("null", "None")
+        cases = [
+            ("workflow_dispatch", "a" * 40, None, False),
+            ("workflow_dispatch", "", None, True),
+            ("pull_request", "", 1443337118, True),
+            ("pull_request", "", 7, False),
+            ("pull_request", "", None, False),
+            ("push", "", None, True),
+        ]
+        for event, candidate, head_repo, expected in cases:
+            with self.subTest(event=event, candidate=candidate, head_repo=head_repo):
+                actual = eval(condition, {"__builtins__": {}}, {
+                    "event": event, "candidate": candidate, "head_repo": head_repo,
+                    "repository": 1443337118,
+                })
+                self.assertEqual(expected, actual)
+
+
+    def test_08_focused_gate_does_not_waive_canonical_failure(self) -> None:
+        workflow = (REPO / ".github" / "workflows" / "mission-control-bridge.yaml").read_text(encoding="utf-8")
+        candidate = workflow.split("  cell-candidate:", 1)[1]
+        self.assertNotIn("continue-on-error", candidate)
+        self.assertIn('tools/run_template_suite.py --expected-sha "$EXPECTED_CANDIDATE" --require-clean', candidate)
+        focused = candidate.split("      - name: Run current-source coordination and bridge regressions", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("always() && !cancelled() && steps.candidate-bound.outcome == 'success' && steps.candidate-built.outcome == 'success' && steps.canonical-proof.outcome != 'success'", focused)
+        self.assertIn("mission-control-template/tests/test_cell_coordination.py", focused)
+        self.assertIn("mission-control-template/tests/test_wt_mission.py", focused)
+        self.assertIn("sys.exit(any(result['state'] != 'PASS' for result in results))", focused)
+
+
+    def test_09_private_fixture_logs_are_excluded_from_public_receipts(self) -> None:
+        import json
+        module_path = REPO / ".github/tools/cell_proof_receipt.py"
+        spec = importlib.util.spec_from_file_location("cell_proof_receipt", module_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        secret = "PRIVATE-FIXTURE-SENTINEL-MUST-NOT-BE-PUBLISHED"
+        candidate = "a" * 40
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            private = root / "private"
+            canonical = private / "canonical"
+            canonical.mkdir(parents=True)
+            (private / "runner.stdout.txt").write_text(secret)
+            (private / "runner.stderr.txt").write_text(secret)
+            (canonical / "manifest.json").write_text(json.dumps({"observed_head": candidate,
+                "expected_head": candidate, "private_content": secret, "result": "FAIL"}))
+            (canonical / "summary.json").write_text(json.dumps({"state": "FAIL", "error": secret,
+                "layers": [{"layer": "environment_integration", "required": True, "state": "FAIL", "commands": [{
+                    "command": ["python", "tests/test_mission_control.py", "--mission-root", secret],
+                    "state": "FAIL", "exit_code": 1, "private_content": secret, "stdout_sha256": "b" * 64,
+                    "stderr_sha256": "c" * 64}]}]}))
+            provenance = {"repository": "SaiFlyBy/flybyrefactor", "commit": "d" * 40, "tree": "e" * 40,
+                          "sealed_checksums": {}, "private_note": secret}
+            public = root / "public"
+            receipt = module.retain(private, public, candidate, provenance)
+            self.assertEqual("FAIL", receipt["state"])
+            self.assertEqual(1, receipt["layers"][0]["commands"][0]["exit_code"])
+            self.assertEqual(hashlib.sha256(secret.encode()).hexdigest(), receipt["runner_stdout_sha256"])
+            self.assertFalse(receipt["log_contents_published"])
+            self.assertEqual({"manifest.json", "summary.json", "fixture-provenance.json"}, {path.name for path in public.iterdir()})
+            for path in public.iterdir():
+                self.assertNotIn(secret, path.read_text())
+            with self.assertRaises(ValueError):
+                module.retain(private, root / "wrong-head", "f" * 40, provenance)
 
 
 if __name__ == "__main__":

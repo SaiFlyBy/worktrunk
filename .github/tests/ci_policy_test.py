@@ -25,7 +25,7 @@ ENTRY_JOBS = {
     'affected.yaml': {'collect-affected', 'affected-tests'},
     'ci.yaml': {'lint', 'feature-check', 'test', 'fast-checks', 'changes'},
     'coverage.yaml': {'code-coverage'},
-    'mission-control-bridge.yaml': {'bridge'},
+    'mission-control-bridge.yaml': {'bridge', 'cell-candidate'},
     'nightly.yaml': {'gate'},
     'publish-docs.yaml': {'build-docs'},
     'release.yaml': {'plan'},
@@ -33,6 +33,8 @@ ENTRY_JOBS = {
 ENTRY_GUARD = ("${{ github.event_name != 'pull_request' || "
                "(github.event.pull_request.head.repo.id != null && "
                'github.event.pull_request.head.repo.id == github.event.repository.id) }}')
+BRIDGE_GUARD = "${{ (" + ENTRY_GUARD[4:-3] + ")" + " && (github.event_name != 'workflow_dispatch' || inputs.candidate_sha == '') }}"
+CANDIDATE_GUARD = "${{ github.repository_id == '1443337118' && github.actor_id == '226779263' && github.triggering_actor == 'SaiFlyBy' && github.event_name == 'workflow_dispatch' && inputs.candidate_sha != '' }}"
 AFFECTED_GUARD = ("${{ github.event_name == 'pull_request' && "
                   'github.event.pull_request.head.repo.id != null && '
                   'github.event.pull_request.head.repo.id == github.event.repository.id }}')
@@ -129,7 +131,7 @@ class CiPolicyTests(unittest.TestCase):
                 self.assert_events(name, text)
                 for unwanted in ('codecov/codecov-action', 'CODECOV_TOKEN',
                                  'TEND_BOT_TOKEN', 'max-sixty/tend/',
-                                 'gist.github.com/', 'self-hosted',
+                                 'gist.github.com/',
                                  'signpath/github-action-submit-signing-request',
                                  'SIGNPATH_API_TOKEN', 'cargo publish --package worktrunk'):
                     self.assertNotIn(unwanted.lower(), text.lower())
@@ -152,6 +154,8 @@ class CiPolicyTests(unittest.TestCase):
                 self.assertIsNotNone(condition, f'unguarded entry job: {name}/{job}')
                 expected = (COLLECT_GUARD if (name, job) == ('affected.yaml', 'collect-affected')
                             else AFFECTED_GUARD if (name, job) == ('affected.yaml', 'affected-tests')
+                            else BRIDGE_GUARD if (name, job) == ('mission-control-bridge.yaml', 'bridge')
+                            else CANDIDATE_GUARD if (name, job) == ('mission-control-bridge.yaml', 'cell-candidate')
                             else ENTRY_GUARD)
                 self.assertEqual(condition.group(1), expected)
             else:
@@ -205,6 +209,42 @@ class CiPolicyTests(unittest.TestCase):
         for replacement in ("    if: >-\n      ${{ !cancelled() }}", "    'if': ${{ !cancelled() }}"):
             with self.subTest(replacement=replacement), self.assertRaises(AssertionError):
                 self.assert_pr_jobs_guarded('ci.yaml', source.replace(old, replacement))
+
+
+    def test_cell_qualification_route_is_owner_only_fixed_branch_and_exact_sha(self):
+        files = workflows()
+        labels = '[self-hosted, Linux, X64, worktrunk-docker]'
+        lint_config = (ROOT / '.github/actionlint.yaml').read_text(encoding='utf-8')
+        self.assertEqual(['worktrunk-docker'], re.findall(r'(?m)^    - (.+)$', lint_config))
+        for name, source in files.items():
+            if name != 'mission-control-bridge.yaml':
+                self.assertNotIn('self-hosted', source)
+        workflow = files['mission-control-bridge.yaml']
+        parsed = jobs(workflow)
+        block = parsed['cell-candidate']
+        self.assertNotIn('self-hosted', parsed['bridge'])
+        self.assertEqual(1, workflow.count(labels))
+        self.assertIn('    runs-on: ' + labels, block)
+        self.assertIn('ref: refs/heads/flyby/cell-enforcement-pro-20261105', block)
+        self.assertIn('repository: SaiFlyBy/worktrunk', block)
+        self.assertIn('ref: ${{ github.workflow_sha }}', block)
+        self.assertIn('[[ "$EXPECTED_CANDIDATE" =~ ^[0-9a-f]{40}$ ]]', block)
+        self.assertIn('test "$(git rev-parse HEAD)" = "$EXPECTED_CANDIDATE"', block)
+        self.assertLess(block.index('test "$(git rev-parse HEAD)" = "$EXPECTED_CANDIDATE"'),
+                        block.index('cargo build --locked --bin wt'))
+        self.assertIn('python tools/run_template_suite.py --expected-sha "$EXPECTED_CANDIDATE" --require-clean', block)
+        self.assertIn('MC_SOURCE_PROOF_REPO="$RUNNER_TEMP/../worktrunk-cell-fixtures/29efd0ffcac21717fd789da2c7020a7e02501e00/', block)
+        self.assertIn('WORKTRUNK_PRIVATE_PROOF="$HOME/worktrunk-cell-private-proof/', block)
+        self.assertIn('          umask 077', block)
+        self.assertIn('persist-credentials: false', block)
+        self.assertNotIn('secrets.', block)
+        self.assertNotIn('pull_request_target', workflow)
+        setup = (ROOT / '.github/actions/self-hosted-setup/action.yaml').read_text(encoding='utf-8')
+        actions = re.findall(r'(?m)^\s*(?:-\s*)?uses:\s*([^\s#]+)', block + setup)
+        self.assertTrue(actions)
+        for action in actions:
+            if action != './.github/actions/self-hosted-setup':
+                self.assertRegex(action, r'@[0-9a-f]{40}$')
 
     def test_coverage_and_test_artifacts_are_retained(self):
         files = workflows()

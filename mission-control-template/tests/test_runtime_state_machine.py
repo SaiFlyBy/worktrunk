@@ -384,6 +384,105 @@ class RuntimeStateMachineSuite(unittest.TestCase):
             branch["evidence"][0]["sha256"] = qualification_sha
         return payload
 
+
+    def bridge_settle(self, cell: str, attempt: int, result: Path, receipt: Path,
+                      adjudication: Path, *, ok: bool = True) -> subprocess.CompletedProcess[str]:
+        return self._run(
+            ROOT / "tools" / "wt_mission.py", "settle", "--root", self.root,
+            "--cell", cell, "--attempt", attempt, "--result", result,
+            "--context-receipt", receipt, "--adjudication", adjudication,
+            "--reconcile", ok=ok,
+        )
+
+    def test_bridge_settlement_reconciles_only_identical_current_evidence(self) -> None:
+        self.mc("baseline", "compile", "--root", self.root)
+        self.mc("dispatch", "--root", self.root, "--cell", "A000")
+        result, receipt = self.result("A000"), self.receipt("A000", extra={"estimated_context_consumed": 1})
+        adjudication = self.adjudication("A000", result, receipt, attempt=1)
+        lock_bytes = (self.root / "TEMPLATE_LOCK.json").read_bytes()
+        runtime_bytes = self.runtime.read_bytes()
+        bridge_bytes = (self.runtime.parent / "wt_mission.py").read_bytes()
+        first = json.loads(self.bridge_settle("A000", 1, result, receipt, adjudication).stdout)
+        self.assertEqual("ACCEPTED", first["state"])
+        self.assertFalse(first["reconciled"])
+        accepted = self.state()["cells"]["A000"]
+        second = json.loads(self.bridge_settle("A000", 1, result, receipt, adjudication).stdout)
+        self.assertEqual("ACCEPTED", second["state"])
+        self.assertTrue(second["reconciled"])
+        self.assertEqual(accepted, self.state()["cells"]["A000"])
+        self.assertEqual(1, len(accepted["attempt_history"]))
+        self.assertEqual(lock_bytes, (self.root / "TEMPLATE_LOCK.json").read_bytes())
+        self.assertEqual(runtime_bytes, self.runtime.read_bytes())
+        self.assertEqual(bridge_bytes, (self.runtime.parent / "wt_mission.py").read_bytes())
+
+        equivalent = self.root / "equivalent-receipt.json"
+        same_value = json.loads(receipt.read_text(encoding="utf-8"))
+        equivalent.write_text(json.dumps(dict(reversed(list(same_value.items()))),
+                                         separators=(",", ":")), encoding="utf-8")
+        same = json.loads(self.bridge_settle("A000", 1, result, equivalent, adjudication).stdout)
+        self.assertTrue(same["reconciled"])
+
+        for key in ("boolean_as_zero", "integer_as_true"):
+            with self.subTest(type_conflict=key):
+                value = json.loads(receipt.read_text(encoding="utf-8"))
+                if key == "boolean_as_zero":
+                    value["continuation"]["session_reusable"] = 0
+                else:
+                    value["estimated_context_consumed"] = True
+                changed = self.root / f"{key}.json"
+                write_json(changed, value)
+                self.bridge_settle("A000", 1, result, changed, adjudication, ok=False)
+                self.assertEqual(accepted, self.state()["cells"]["A000"])
+
+        supplied = [result, receipt, adjudication]
+        for index, original in enumerate(supplied):
+            with self.subTest(conflicting=index):
+                changed = self.root / f"conflicting-{index}.json"
+                value = json.loads(original.read_text(encoding="utf-8"))
+                value["unexpected_test_field"] = "different"
+                write_json(changed, value)
+                candidate = list(supplied)
+                candidate[index] = changed
+                self.bridge_settle("A000", 1, *candidate, ok=False)
+                self.assertEqual(accepted, self.state()["cells"]["A000"])
+
+        durable = self.root / accepted["result_ref"]
+        original = durable.read_bytes()
+        try:
+            durable.write_bytes(original + b" ")
+            self.bridge_settle("A000", 1, result, receipt, adjudication, ok=False)
+        finally:
+            durable.write_bytes(original)
+        self.assertEqual(accepted, self.state()["cells"]["A000"])
+
+    def test_bridge_settlement_recovers_concurrent_duplicate_without_duplicate_history(self) -> None:
+        self.mc("baseline", "compile", "--root", self.root)
+        self.mc("dispatch", "--root", self.root, "--cell", "A000")
+        result, receipt = self.result("A000"), self.receipt("A000")
+        adjudication = self.adjudication("A000", result, receipt, attempt=1)
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(self.bridge_settle, "A000", 1, result, receipt, adjudication)
+                       for _ in range(2)]
+            observations = [json.loads(future.result().stdout) for future in futures]
+        self.assertEqual(["ACCEPTED", "ACCEPTED"], [item["state"] for item in observations])
+        self.assertEqual([False, True], sorted(item["reconciled"] for item in observations))
+        self.assertEqual(1, len(self.state()["cells"]["A000"]["attempt_history"]))
+
+    def test_bridge_settlement_rejects_receipt_from_an_older_attempt(self) -> None:
+        self.mc("baseline", "compile", "--root", self.root)
+        self.mc("dispatch", "--root", self.root, "--cell", "A000")
+        result, receipt = self.result("A000", "FAILED"), self.receipt("A000")
+        adjudication = self.adjudication("A000", result, receipt, attempt=1)
+        self.bridge_settle("A000", 1, result, receipt, adjudication)
+        self.mc("retry", "--root", self.root, "--cell", "A000")
+        self.mc("dispatch", "--root", self.root, "--cell", "A000")
+        before = self.state()["cells"]["A000"]
+        self.bridge_settle("A000", 1, result, receipt, adjudication, ok=False)
+        self.assertEqual(before, self.state()["cells"]["A000"])
+        self.assertEqual(2, before["attempt"])
+        self.assertEqual("DISPATCHED", before["state"])
+
     def test_retry_is_attempt_scoped_and_rejects_late_result(self) -> None:
         self.accept_baseline()
         self.compile_reference()
@@ -394,7 +493,8 @@ class RuntimeStateMachineSuite(unittest.TestCase):
         self.assertEqual(1, first["attempt"])
         self.assertEqual(1, len(first["attempt_history"]))
         first_result = self.root / first["attempt_history"][0]["result_ref"]
-        original_first = first_result.read_text(encoding="utf-8")
+        # Sealed hashes bind bytes; text restoration rewrites LF to CRLF on Windows.
+        original_first = first_result.read_bytes()
 
         self.mc("retry", "--root", self.root, "--cell", "M000")
         retried = self.state()["cells"]["M000"]
@@ -420,7 +520,7 @@ class RuntimeStateMachineSuite(unittest.TestCase):
         tampered["summary"] = "tampered historical failed attempt"
         write_json(first_result, tampered)
         self.mc("doctor", "--root", self.root, ok=False)
-        first_result.write_text(original_first, encoding="utf-8")
+        first_result.write_bytes(original_first)
         self.mc("doctor", "--root", self.root)
 
     def test_settlement_resumes_after_residency_written_before_state(self) -> None:
@@ -466,10 +566,8 @@ class RuntimeStateMachineSuite(unittest.TestCase):
         write_json(residency_path, residency)
         self.assertEqual("DISPATCHED", self.state()["cells"]["A000"]["state"])
 
-        self.mc(
-            "settle", "--root", self.root, "--cell", "A000", "--attempt", 1,
-            "--result", result, "--context-receipt", receipt, "--adjudication", adjudication,
-        )
+        resumed = json.loads(self.bridge_settle("A000", 1, result, receipt, adjudication).stdout)
+        self.assertFalse(resumed["reconciled"])
         self.assertEqual("ACCEPTED", self.state()["cells"]["A000"]["state"])
         self.mc("doctor", "--root", self.root)
 
@@ -724,13 +822,13 @@ class RuntimeStateMachineSuite(unittest.TestCase):
         accepted = self.state()["cells"]["A000"]
         self.assertEqual("ACCEPTED", accepted["state"])
         adjudication_path = self.root / accepted["adjudication_ref"]
-        original = adjudication_path.read_text(encoding="utf-8")
+        original = adjudication_path.read_bytes()
         tampered = json.loads(original)
         tampered["rationale"] = "tampered verifier rationale"
         write_json(adjudication_path, tampered)
         doctor = self.mc("doctor", "--root", self.root, ok=False)
         self.assertTrue("MC0256" in doctor.stderr or "MC0216" in doctor.stderr)
-        adjudication_path.write_text(original, encoding="utf-8")
+        adjudication_path.write_bytes(original)
         self.mc("doctor", "--root", self.root)
 
     def test_hostile_frontier_identifiers_cannot_escape_mission_root(self) -> None:
@@ -871,29 +969,29 @@ class RuntimeStateMachineSuite(unittest.TestCase):
     def test_doctor_binds_frontier_and_corpus_provenance(self) -> None:
         self.mc("baseline", "compile", "--root", self.root)
         frontier_path = self.root / "frontiers" / "F000" / "FRONTIER.json"
-        original_frontier = frontier_path.read_text(encoding="utf-8")
+        original_frontier = frontier_path.read_bytes()
         frontier = json.loads(original_frontier)
         frontier["cells"][0]["objective"] = "tampered authored objective"
         write_json(frontier_path, frontier)
         self.mc("doctor", "--root", self.root, ok=False)
-        frontier_path.write_text(original_frontier, encoding="utf-8")
+        frontier_path.write_bytes(original_frontier)
         self.mc("doctor", "--root", self.root)
 
         corpus_path = self.root / "corpus" / "TARGET_MUTATIONS.json"
-        original_corpus = corpus_path.read_text(encoding="utf-8")
+        original_corpus = corpus_path.read_bytes()
         corpus = json.loads(original_corpus)
         corpus["mission_id"] = "FOREIGN-MISSION"
         write_json(corpus_path, corpus)
         self.mc("doctor", "--root", self.root, ok=False)
-        corpus_path.write_text(original_corpus, encoding="utf-8")
+        corpus_path.write_bytes(original_corpus)
 
         source_path = self.root / "corpus" / "SOURCES.json"
-        original_sources = source_path.read_text(encoding="utf-8")
+        original_sources = source_path.read_bytes()
         sources = json.loads(original_sources)
         sources["mission_id"] = "FOREIGN-MISSION"
         write_json(source_path, sources)
         self.mc("doctor", "--root", self.root, ok=False)
-        source_path.write_text(original_sources, encoding="utf-8")
+        source_path.write_bytes(original_sources)
         self.mc("doctor", "--root", self.root)
 
     def test_init_rejects_control_target_custody_collision(self) -> None:

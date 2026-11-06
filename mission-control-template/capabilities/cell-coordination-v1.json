@@ -1,0 +1,13 @@
+{
+  "schema": "flyby/mission-control-capability/1",
+  "capability": "cell-coordination/v1",
+  "scope": "TARGET_MUTATION",
+  "execution_state_schema": "flyby/mission-control-execution-state/19",
+  "termination": "EXPLICIT_INDEPENDENT_OPERATOR_FENCE; NO_AUTOMATIC_PROVIDER_TERMINATION",
+  "admission_permission": "LAUNCH_PROTOCOL_ONLY",
+  "settlement_requires": [
+    "generation",
+    "token"
+  ],
+  "provider_launch_performed_by_runtime": false
+}
